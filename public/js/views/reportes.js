@@ -1,0 +1,208 @@
+import { api } from '../api.js';
+import { S, today, on } from '../store.js';
+import { toast, ICON } from '../ui/dom.js';
+import { exportMenu } from '../ui/pickers.js';
+import { exportExcel, printReport } from '../export.js';
+import { esc, money, money0, int, addDays, addMonths, startOfWeek, startOfMonth, endOfMonth, parseD, MESES, MES3, DIAS3, cap, sumDays, emptyDay, pagTipo, pagTotal, analizarCierre, METODOS, fechaCorta, statsFromSales } from '../util.js';
+
+let root, modo = 'semana', ref = null, data = null, loading = false, reqId = 0, goDia = () => {};
+export const setGoDia = f => { goDia = f; };
+
+function rango(m = modo, r = ref) {
+  if (m === 'semana') { const a = startOfWeek(r); return { from: a, to: addDays(a, 6) }; }
+  if (m === 'mes') return { from: startOfMonth(r), to: endOfMonth(r) };
+  const y = r.slice(0, 4); return { from: `${y}-01-01`, to: `${y}-12-31` };
+}
+function mover(n) {
+  if (modo === 'semana') ref = addDays(startOfWeek(ref), 7 * n);
+  else if (modo === 'mes') ref = addMonths(startOfMonth(ref), n);
+  else ref = `${Number(ref.slice(0, 4)) + n}-01-01`;
+  load();
+}
+function etiqueta() {
+  const t = today(), { from, to } = rango();
+  const cur = rango(modo, t).from;
+  const dF = parseD(from), dT = parseD(to);
+  if (modo === 'semana') {
+    const sub = dF.getUTCMonth() === dT.getUTCMonth()
+      ? `${dF.getUTCDate()} – ${dT.getUTCDate()} ${MES3[dT.getUTCMonth()]} ${dT.getUTCFullYear()}`
+      : `${dF.getUTCDate()} ${MES3[dF.getUTCMonth()]} – ${dT.getUTCDate()} ${MES3[dT.getUTCMonth()]} ${dT.getUTCFullYear()}`;
+    const main = from === cur ? 'Esta semana' : from === addDays(cur, -7) ? 'Semana pasada' : 'Semana';
+    return { main, sub };
+  }
+  if (modo === 'mes') {
+    const nombre = `${cap(MESES[dF.getUTCMonth()])} ${dF.getUTCFullYear()}`;
+    const main = from === cur ? 'Este mes' : from === addMonths(cur, -1) ? 'Mes pasado' : nombre;
+    return { main, sub: main === nombre ? '' : nombre };
+  }
+  const y = from.slice(0, 4);
+  return { main: from === cur ? 'Este año' : Number(y) === Number(t.slice(0, 4)) - 1 ? 'Año pasado' : y, sub: (from === cur || Number(y) === Number(t.slice(0, 4)) - 1) ? y : '' };
+}
+function metaPeriodo() {
+  const st = S.settings;
+  if (modo === 'semana') return { meta: st.dias ? st.meta / st.dias * st.diasSemana : 0, lab: st.diasSemana, barMeta: st.dias ? st.meta / st.dias : 0 };
+  if (modo === 'mes') return { meta: st.meta, lab: st.dias, barMeta: st.dias ? st.meta / st.dias : 0 };
+  return { meta: st.meta * 12, lab: st.dias * 12, barMeta: st.meta };
+}
+
+export function mount(el) {
+  root = el;
+  ref = today();
+  root.innerHTML = `
+  <div class="toolbar">
+    <div class="seg" data-modo style="min-width:270px"><button data-m="semana">Semana</button><button data-m="mes">Mes</button><button data-m="anio">Año</button></div>
+    <button class="iconbtn" data-prev aria-label="Anterior">${ICON.left}</button>
+    <div class="datebtn" style="cursor:default" data-lbl></div>
+    <button class="iconbtn" data-next aria-label="Siguiente">${ICON.right}</button>
+    <button class="btn ghost sm" data-hoy>Actual</button>
+    <div class="spacer"></div>
+    <button class="btn line" data-exp>${ICON.down}Descargar / Imprimir</button>
+  </div>
+  <div class="lay-rep">
+    <div class="card r-meta">
+      <div class="row between" style="align-items:flex-end;flex-wrap:wrap;gap:6px 16px">
+        <div><div class="label" data-mlabel>Vendido</div><div class="big" data-total>$0</div></div>
+        <div class="num" style="color:var(--muted);font-weight:600" data-meta></div>
+      </div>
+      <div class="bar"><i data-bar style="width:0"></i></div>
+      <div class="sub-note" data-pct></div>
+    </div>
+    <div class="kpis" data-kpis></div>
+    <div class="card r-chart"><div class="label">Ventas por <span data-unit>día</span></div><div class="chart" data-chart></div><div class="axis" data-axis></div></div>
+    <div class="card r-met"><div class="label">Por método de pago</div><div data-met></div></div>
+    <div class="card r-pag"><div class="label">Páginas a color</div><div data-pag></div></div>
+    <div class="card r-tab"><div class="label" data-tlabel>Detalle por día</div><div style="overflow-x:auto"><table class="dtable rtable" data-tab></table></div></div>
+  </div>`;
+  root.querySelector('[data-modo]').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || b.dataset.m === modo) return; modo = b.dataset.m; load(); });
+  root.querySelector('[data-prev]').onclick = () => mover(-1);
+  root.querySelector('[data-next]').onclick = () => mover(1);
+  root.querySelector('[data-hoy]').onclick = () => { ref = today(); load(); };
+  root.querySelector('[data-tab]').addEventListener('click', e => {
+    const tr = e.target.closest('tr[data-k]'); if (!tr) return;
+    if (modo === 'anio') { modo = 'mes'; ref = tr.dataset.k + '-01'; load(); } else goDia(tr.dataset.k);
+  });
+  root.querySelector('[data-chart]').addEventListener('click', e => {
+    const b = e.target.closest('.b[data-k]'); if (!b) return;
+    if (modo === 'anio') { modo = 'mes'; ref = b.dataset.k + '-01'; load(); } else if (b.dataset.k <= today()) goDia(b.dataset.k);
+  });
+  exportMenu(root.querySelector('[data-exp]'), { onExcel: () => exportar('xls'), onPrint: () => exportar('print') });
+  on(what => { if ((what === 'remote' || what === 'sale') && root.closest('.view.on')) load(true); });
+}
+
+export function show() { load(); }
+
+async function load(silent = false) {
+  const id = ++reqId, { from, to } = rango();
+  paintHead();
+  if (!silent) { loading = true; data = null; paint(); }
+  try {
+    const r = await api(`/api/summary?from=${from}&to=${to}`);
+    if (id !== reqId) return;
+    data = r; loading = false; paint();
+  } catch (e) { if (id === reqId) { loading = false; paint(); if (e.status !== 401) toast(e.message, true); } }
+}
+
+function paintHead() {
+  root.querySelectorAll('[data-modo] button').forEach(b => b.classList.toggle('sel', b.dataset.m === modo));
+  const l = etiqueta();
+  root.querySelector('[data-lbl]').innerHTML = `${esc(l.main)}${l.sub ? ` <small>${esc(l.sub)}</small>` : ''}`;
+  const cur = rango(modo, today()).from, { from } = rango();
+  root.querySelector('[data-next]').disabled = from >= cur;
+  root.querySelector('[data-hoy]').classList.toggle('hide', from === cur);
+}
+
+function buckets() {
+  const { from, to } = rango();
+  const days = data?.days || {};
+  if (modo === 'anio') {
+    const y = from.slice(0, 4);
+    return MES3.map((m, i) => {
+      const k = `${y}-${String(i + 1).padStart(2, '0')}`;
+      const list = Object.keys(days).filter(f => f.startsWith(k)).map(f => days[f]);
+      return { k, label: m, s: sumDays(list), days: list.filter(d => d.n > 0).length };
+    });
+  }
+  const out = [];
+  for (let f = from; f <= to; f = addDays(f, 1)) out.push({ k: f, label: modo === 'semana' ? DIAS3[parseD(f).getUTCDay()] : String(parseD(f).getUTCDate()), s: days[f] || emptyDay(), closing: data?.closings?.[f] });
+  return out;
+}
+
+function paint() {
+  const t = today(), { from, to } = rango();
+  const actual = from <= t && t <= to;
+  const days = data?.days || {};
+  const s = sumDays(Object.values(days));
+  const { meta, lab, barMeta } = metaPeriodo();
+  const diasV = Object.values(days).filter(d => d.n > 0).length;
+  const prom = diasV ? s.total / diasV : 0;
+
+  root.querySelector('[data-total]').textContent = loading ? '…' : money0(s.total);
+  root.querySelector('[data-meta]').textContent = `Meta ${money0(meta)}`;
+  const pct = meta ? s.total / meta * 100 : 0;
+  root.querySelector('[data-bar]').style.width = Math.min(100, pct) + '%';
+  root.querySelector('[data-pct]').textContent = `${pct.toFixed(1)}% de la meta${s.total >= meta && meta ? ' · Meta cumplida' : ''}`;
+
+  const falta = Math.max(0, meta - s.total), rest = Math.max(1, lab - diasV);
+  const k = [
+    ['Promedio por día', money0(prom), `${diasV} día${diasV === 1 ? '' : 's'} con ventas`],
+    actual ? ['Proyección', money0(prom * lab), `a este ritmo, ${lab} días`] : ['Resultado', money0(s.total), s.total >= meta ? 'meta cumplida' : `faltaron ${money0(meta - s.total)}`],
+    ['Páginas a color', int(pagTotal(s)), `Imp. ${int(pagTipo(s, 'imp'))} · Copias ${int(pagTipo(s, 'cop'))}`],
+    actual ? ['Faltan por día', falta ? money0(falta / rest) : '$0', falta ? `${rest} días restantes` : 'meta alcanzada'] : ['Ventas', int(s.n), 'tickets cobrados'],
+    ['Ticket promedio', s.n ? money(s.total / s.n) : '$0.00', `${int(s.n)} ventas`],
+  ];
+  root.querySelector('[data-kpis]').innerHTML = k.map(([l, v, sub]) => `<div class="kpi"><div class="label" style="margin:0">${l}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`).join('');
+
+  // gráfico
+  const b = buckets();
+  const max = Math.max(barMeta, ...b.map(x => x.s.total), 1);
+  root.querySelector('[data-unit]').textContent = modo === 'anio' ? 'mes' : 'día';
+  root.querySelector('[data-chart]').innerHTML = b.map(x => `<div class="b${x.s.total ? '' : ' zero'}${x.k === t || (modo === 'anio' && t.startsWith(x.k)) ? ' today' : ''}" data-k="${x.k}" title="${esc(x.label)}: ${money(x.s.total)}"><i style="height:${Math.max(1.5, x.s.total / max * 100)}%"></i></div>`).join('')
+    + (barMeta ? `<div class="goal" style="bottom:${barMeta / max * 100}%"><span>meta ${money0(barMeta)}</span></div>` : '');
+  const step = b.length > 20 ? 5 : 1;
+  root.querySelector('[data-axis]').innerHTML = b.map((x, i) => `<span>${modo === 'mes' ? ((i + 1) % step === 0 || i === 0 ? x.label : '') : x.label}</span>`).join('');
+
+  const tot = s.total || 1;
+  root.querySelector('[data-met]').innerHTML = Object.entries(METODOS).map(([k2, l]) =>
+    `<div class="mrow m-${k2}"><span class="dot"></span><span>${l}</span><span class="n">${s.met[k2].n} · ${Math.round(s.met[k2].t / tot * 100)}%</span><span class="a">${money(s.met[k2].t)}</span></div>`).join('');
+  const row = (n, g) => `<tr><td>${n}</td><td class="num">${int(g.carta)}</td><td class="num">${int(g.legal)}</td><td class="num">${int(g.otro)}</td><td class="num"><b>${int(g.carta + g.legal + g.otro)}</b></td></tr>`;
+  root.querySelector('[data-pag]').innerHTML = `<table class="dtable"><thead><tr><th></th><th>Carta</th><th>Legal</th><th>Otro</th><th>Total</th></tr></thead><tbody>
+    ${row('Impresiones', s.pag.imp)}${row('Copias', s.pag.cop)}
+    <tr class="tot"><td>Total</td><td class="num">${int(s.pag.imp.carta + s.pag.cop.carta)}</td><td class="num">${int(s.pag.imp.legal + s.pag.cop.legal)}</td><td class="num">${int(s.pag.imp.otro + s.pag.cop.otro)}</td><td class="num">${int(pagTotal(s))}</td></tr></tbody></table>`;
+
+  // tabla
+  root.querySelector('[data-tlabel]').textContent = modo === 'anio' ? 'Detalle por mes' : 'Detalle por día';
+  const rows = b.filter(x => x.s.n || x.closing);
+  const tab = root.querySelector('[data-tab]');
+  if (loading) { tab.innerHTML = '<tbody><tr><td class="empty">Cargando…</td></tr></tbody>'; return; }
+  if (!rows.length) { tab.innerHTML = '<tbody><tr><td class="empty">Sin ventas en este periodo</td></tr></tbody>'; return; }
+  tab.innerHTML = `<thead><tr><th>${modo === 'anio' ? 'Mes' : 'Día'}</th><th>Págs</th><th>Efectivo</th><th>Tarjeta</th><th>Yappy</th><th>Total</th>${modo === 'anio' ? '<th>Días</th>' : '<th>Dif. máquina</th>'}</tr></thead><tbody>
+  ${rows.slice().reverse().map(x => {
+    let last;
+    if (modo === 'anio') last = `<td class="num">${x.days}</td>`;
+    else {
+      const a = analizarCierre(x.closing, x.s);
+      last = `<td class="num">${a.maq != null ? `<b style="color:${a.dif === 0 ? 'var(--ok)' : a.dif > 0 ? 'var(--bad)' : 'var(--warn)'}">${a.dif > 0 ? '+' : ''}${int(a.dif)}</b>` : '—'}</td>`;
+    }
+    const name = modo === 'anio' ? cap(MESES[Number(x.k.slice(5, 7)) - 1]) : cap(fechaCorta(x.k));
+    return `<tr data-k="${x.k}"><td>${esc(name)}</td><td class="num">${int(pagTotal(x.s))}</td><td class="num">${money(x.s.met.efectivo.t)}</td><td class="num">${money(x.s.met.tarjeta.t)}</td><td class="num">${money(x.s.met.yappy.t)}</td><td class="num"><b>${money(x.s.total)}</b></td>${last}</tr>`;
+  }).join('')}
+  <tr class="tot"><td>Total</td><td class="num">${int(pagTotal(s))}</td><td class="num">${money(s.met.efectivo.t)}</td><td class="num">${money(s.met.tarjeta.t)}</td><td class="num">${money(s.met.yappy.t)}</td><td class="num">${money(s.total)}</td><td></td></tr></tbody>`;
+}
+
+async function exportar(kind) {
+  const { from, to } = rango();
+  const l = etiqueta();
+  try {
+    toast('Preparando…');
+    const [r, sm] = await Promise.all([api(`/api/sales?from=${from}&to=${to}`), data ? Promise.resolve(data) : api(`/api/summary?from=${from}&to=${to}`)]);
+    const { meta } = metaPeriodo();
+    const payload = {
+      titulo: modo === 'semana' ? 'Ventas de la semana' : modo === 'mes' ? 'Ventas del mes' : 'Ventas del año',
+      periodo: modo === 'semana' ? `Semana ${l.sub}` : modo === 'mes' ? (l.sub || l.main) : from.slice(0, 4),
+      from, to, multiDay: true, porMes: modo === 'anio',
+      sales: r.sales, stats: statsFromSales(r.sales), closings: sm.closings || {}, days: sm.days || {}, meta,
+      archivo: `Ventas_${from}_a_${to}`,
+    };
+    if (kind === 'xls') await exportExcel(payload); else printReport(payload);
+  } catch (e) { toast(e.message, true); }
+}

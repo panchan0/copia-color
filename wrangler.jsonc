@@ -1,0 +1,28 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "copias-color",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "copias-color-db",
+      // Reemplaza con el id que te da: npx wrangler d1 create copias-color-db
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    // "false" para impedir que se creen cuentas nuevas desde la página
+    "ALLOW_SIGNUP": "true",
+    // Iteraciones PBKDF2 para las contraseñas
+    "PBKDF2_ITERATIONS": "60000"
+  },
+  "observability": { "enabled": true }
+}

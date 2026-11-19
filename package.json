@@ -1,0 +1,19 @@
+{
+  "name": "copias-color",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Control de impresiones y copias a color (Versant 180) — Cloudflare Workers + D1",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply copias-color-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply copias-color-db --remote",
+    "db:backup": "wrangler d1 export copias-color-db --remote --output=respaldo.sql",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261119.1",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.165.0"
+  }
+}
