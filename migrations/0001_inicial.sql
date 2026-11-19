@@ -1,5 +1,5 @@
 -- Cuentas (una por negocio)
-CREATE TABLE accounts (
+CREATE TABLE IF NOT EXISTS accounts (
   id          TEXT PRIMARY KEY,
   email       TEXT NOT NULL UNIQUE COLLATE NOCASE,
   business    TEXT NOT NULL,
@@ -10,28 +10,28 @@ CREATE TABLE accounts (
   created_at  INTEGER NOT NULL
 );
 
-CREATE TABLE sessions (
+CREATE TABLE IF NOT EXISTS sessions (
   token_hash  TEXT PRIMARY KEY,
   account_id  TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   created_at  INTEGER NOT NULL,
   expires_at  INTEGER NOT NULL,
   user_agent  TEXT
 );
-CREATE INDEX idx_sessions_account ON sessions(account_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id);
 
-CREATE TABLE login_attempts (
+CREATE TABLE IF NOT EXISTS login_attempts (
   key          TEXT PRIMARY KEY,
   count        INTEGER NOT NULL,
   window_start INTEGER NOT NULL
 );
 
-CREATE TABLE settings (
+CREATE TABLE IF NOT EXISTS settings (
   account_id  TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
   data        TEXT NOT NULL,
   updated_at  INTEGER NOT NULL
 );
 
-CREATE TABLE clients (
+CREATE TABLE IF NOT EXISTS clients (
   id          TEXT PRIMARY KEY,
   account_id  TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   name        TEXT NOT NULL,
@@ -40,10 +40,10 @@ CREATE TABLE clients (
   archived    INTEGER NOT NULL DEFAULT 0,
   created_at  INTEGER NOT NULL
 );
-CREATE INDEX idx_clients_account ON clients(account_id, archived);
+CREATE INDEX IF NOT EXISTS idx_clients_account ON clients(account_id, archived);
 
 -- Montos en centavos para evitar errores de redondeo
-CREATE TABLE sales (
+CREATE TABLE IF NOT EXISTS sales (
   id           TEXT PRIMARY KEY,
   account_id   TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   fecha        TEXT NOT NULL,          -- YYYY-MM-DD en la zona horaria del negocio
@@ -57,9 +57,9 @@ CREATE TABLE sales (
   anulada      INTEGER NOT NULL DEFAULT 0,
   anulada_ts   INTEGER
 );
-CREATE INDEX idx_sales_account_fecha ON sales(account_id, fecha);
+CREATE INDEX IF NOT EXISTS idx_sales_account_fecha ON sales(account_id, fecha);
 
-CREATE TABLE sale_items (
+CREATE TABLE IF NOT EXISTS sale_items (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   sale_id       TEXT NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
   tipo          TEXT NOT NULL CHECK (tipo IN ('imp','cop')),
@@ -69,10 +69,10 @@ CREATE TABLE sale_items (
   precio_cents  INTEGER NOT NULL,
   sub_cents     INTEGER NOT NULL
 );
-CREATE INDEX idx_items_sale ON sale_items(sale_id);
+CREATE INDEX IF NOT EXISTS idx_items_sale ON sale_items(sale_id);
 
 -- Cierre del día: contador de la máquina, Fiery y efectivo contado
-CREATE TABLE closings (
+CREATE TABLE IF NOT EXISTS closings (
   account_id      TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   fecha           TEXT NOT NULL,
   inicio          INTEGER,

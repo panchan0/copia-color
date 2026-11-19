@@ -13,8 +13,7 @@
     {
       "binding": "DB",
       "database_name": "copias-color-db",
-      // Reemplaza con el id que te da: npx wrangler d1 create copias-color-db
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "bbe14930-bca0-4ab1-b5f6-525b0011f9fe",
       "migrations_dir": "migrations"
     }
   ],

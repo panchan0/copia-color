@@ -2,6 +2,7 @@ import type { Ctx, Env } from './types';
 import { HttpError, json } from './http';
 import { requireAccount } from './auth';
 import * as R from './routes';
+import { ensureSchema } from './schema';
 
 type Handler = (c: Ctx) => Promise<Response>;
 const routes: [string, RegExp, Handler][] = [];
@@ -38,6 +39,7 @@ export default {
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
     try {
       checkCsrf(req, url);
+      await ensureSchema(env);
       const p = url.pathname, m = req.method;
       if (p === '/api/auth/register' && m === 'POST') return await R.register(env, req, url);
       if (p === '/api/auth/login' && m === 'POST') return await R.login(env, req, url);
