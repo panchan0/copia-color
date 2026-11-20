@@ -422,3 +422,18 @@ body.locked nav.tabs,body.locked main{display:none}
   .wo-firmas{display:flex;justify-content:space-between;margin-top:60px}
   .wo-firmas div{width:40%;border-top:1px solid #000;padding-top:4px;font-size:11px;color:#555}
 }
+
+/* ---------- v4 ---------- */
+.diasel{display:flex;flex-wrap:wrap;gap:8px}
+.dchip{display:flex;flex-direction:column;gap:2px;border:1.5px solid var(--line);border-radius:12px;padding:8px 12px;cursor:pointer;background:#fff;font-size:13px;min-width:120px}
+.dchip input{position:absolute;opacity:0;pointer-events:none}
+.dchip span{color:var(--muted);font-size:12px}
+.dchip.on{border-color:var(--ink);background:var(--soft)}
+.gtab td{vertical-align:top;text-align:left!important}
+.gtab tr.off td{opacity:.4}
+.gtab td div{line-height:1.45}
+.pacts{gap:4px}
+.lnk.mini{font-size:11px;padding:0 4px;color:var(--muted)}
+.dim{opacity:.5}
+.tag.t-col{background:var(--m)}
+.tag.t-log{background:#e8eefb;color:#2c4f9e}

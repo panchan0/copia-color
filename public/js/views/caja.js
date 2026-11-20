@@ -10,9 +10,10 @@ let root, cat = 'color', servId = null, tamId = null, cant = 1, ticket = [], met
 let paints = {}, recientes = [], pendingId = null;
 try { operador = localStorage.getItem('cc_operador') || null; } catch { /* sin almacenamiento */ }
 
-const servicios = () => S.settings.catalogo.filter(s => s.cat === cat);
+const servicios = () => S.settings.catalogo.filter(s => s.cat === cat && !s.oculto && s.tams.some(t => !t.oculto));
 const serv = () => S.settings.catalogo.find(s => s.id === servId) || null;
 const tam = () => serv()?.tams.find(t => t.id === tamId) || null;
+const tamsVisibles = () => (serv()?.tams || []).filter(t => !t.oculto);
 const UNIT_LABEL = { 'pág': 'Cantidad de páginas', 'hoja': 'Cantidad de hojas', 'pie lineal': 'Pies lineales', 'juego': 'Cantidad de juegos', 'unidad': 'Cantidad' };
 
 function tramo(t, pags) {
@@ -111,10 +112,10 @@ export function mount(el) {
   root.querySelector('[data-cat]').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; setCat(b.dataset.c); });
   paints.serv = listPicker(root.querySelector('[data-serv]'), {
     items: () => servicios().map(s => ({ id: s.id, label: s.nombre })), getValue: () => servId, placeholder: 'Selecciona',
-    onChange: v => { servId = v; tamId = serv()?.tams[0]?.id || null; paints.tam(); paint(); },
+    onChange: v => { servId = v; tamId = tamsVisibles()[0]?.id || null; paints.tam(); paint(); },
   });
   paints.tam = listPicker(root.querySelector('[data-tam]'), {
-    items: () => (serv()?.tams || []).map(t => ({ id: t.id, label: t.nombre, sub: t.tramos ? `desde ${money(t.tramos[0].precio)}` : t.precio ? `${money(t.precio)}${serv().unidad === 'pie lineal' ? ' / pie' : ''}` : 'precio libre' })),
+    items: () => tamsVisibles().map(t => ({ id: t.id, label: t.nombre, sub: t.tramos ? `desde ${money(t.tramos[0].precio)}` : t.precio ? `${money(t.precio)}${serv().unidad === 'pie lineal' ? ' / pie' : ''}` : 'precio libre' })),
     getValue: () => tamId, placeholder: 'Selecciona', onChange: v => { tamId = v; paint(); },
   });
   ['libNombre', 'libTam', 'libPrecio', 'encPags', 'lnExtra', 'recibe'].forEach(id => $('#' + id, root).addEventListener('input', paint));
@@ -153,7 +154,7 @@ function setCant(n) { cant = Math.max(serv()?.unidad === 'pie lineal' ? 0.5 : 1,
 function setCat(c) {
   cat = c;
   const s = servicios()[0];
-  servId = s?.id || null; tamId = s?.tams[0]?.id || null;
+  servId = s?.id || null; tamId = s?.tams.find(t => !t.oculto)?.id || null;
   paints.serv(); paints.tam(); paint();
 }
 
@@ -193,7 +194,7 @@ function paint() {
   root.querySelector('[data-clear]').classList.toggle('hide', !ticket.length);
   const cx = calcItbms(bruto(), S.settings.itbms), tot = cx.total;
   root.querySelector('[data-total]').textContent = money(tot);
-  root.querySelector('[data-tsub]').innerHTML = S.settings.itbms.modo === 'no' || tot <= 0 ? ''
+  root.querySelector('[data-tsub]').innerHTML = tot <= 0 ? ''
     : `<div><span>Subtotal</span><span class="num">${money(cx.sub)}</span></div><div><span>ITBMS ${S.settings.itbms.tasa}%</span><span class="num">${money(cx.itbms)}</span></div>`;
   root.querySelector('[data-cash]').classList.toggle('hide', metodo !== 'efectivo');
   const rec = toCents($('#recibe', root).value);

@@ -2,10 +2,19 @@ export class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
+export const SECURITY_HEADERS: Record<string, string> = {
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+  'referrer-policy': 'same-origin',
+  'strict-transport-security': 'max-age=31536000; includeSubDomains',
+  'content-security-policy': "default-src 'none'; frame-ancestors 'none'",
+  'cross-origin-resource-policy': 'same-origin',
+};
+
 export function json(data: unknown, status = 200, headers: HeadersInit = {}): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers },
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...SECURITY_HEADERS, ...headers },
   });
 }
 

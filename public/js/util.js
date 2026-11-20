@@ -104,10 +104,8 @@ export const maqColor = s => Object.values(s.maq || {}).reduce((a, x) => a + (x.
 
 /** Desglose de ITBMS de un monto bruto, igual que el servidor */
 export function calcItbms(bruto, cfg) {
-  const t = (cfg?.tasa ?? 7) / 100;
-  if (cfg?.modo === 'aparte') { const i = Math.round(bruto * t); return { sub: bruto, itbms: i, total: bruto + i }; }
-  if (cfg?.modo === 'incluido') { const sub = Math.round(bruto / (1 + t)); return { sub, itbms: bruto - sub, total: bruto }; }
-  return { sub: bruto, itbms: 0, total: bruto };
+  const i = Math.round(bruto * (cfg?.tasa ?? 7) / 100);
+  return { sub: bruto, itbms: i, total: bruto + i };
 }
 
 /** Comparación del cierre con lo cobrado/hecho */

@@ -51,8 +51,7 @@ function modelo(p) {
     totales: [
       ['Órdenes', String(validas.length)], ['Subtotal', money(s.sub)], [tasa(), money(s.itbms)], ['Total de órdenes', money(s.total)],
       ['Cobrado', money(s.cobrado)], ['Por cobrar (pendientes)', `${money(s.pendT)} · ${s.pendN} órdenes`],
-      ['Páginas a color', int(s.colorPags)], ['Páginas / hojas B/N', int(s.bnPags)],
-      ['Meta del periodo', money(p.meta)], ['Cumplimiento', p.meta ? `${(s.cobrado / p.meta * 100).toFixed(1)}%` : '—'],
+      ['Páginas a color', int(s.colorPags)], ['Páginas / hojas B/N', int(s.bnPags)]
     ],
   };
 }

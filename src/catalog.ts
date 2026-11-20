@@ -60,7 +60,23 @@ export const DEFAULT_CATALOGO: Servicio[] = [
 
 const cents = (v: unknown, max = 1_000_000) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 0 && n <= max ? n : null; };
 
-/** Combina la estructura del código con los precios guardados. */
+const CATS = new Set(['color', 'bn', 'planos', 'enc', 'otros']);
+const UNIDADES = new Set(['pág', 'hoja', 'pie lineal', 'juego', 'unidad']);
+const ID_USER = /^u_[a-z0-9_]{1,40}$/;
+const txt = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+
+function tamUsuario(tv: any): Tam | null {
+  if (!tv || !ID_USER.test(tv.id)) return null;
+  const nombre = txt(tv.nombre, 60); const p = cents(tv.precio);
+  if (!nombre || p == null) return null;
+  return { id: tv.id, nombre, precio: p, ...(tv.oculto ? { oculto: true } : {}) } as Tam;
+}
+
+/**
+ * Combina la estructura del código con lo guardado:
+ * precios de los productos del sistema, tamaños agregados a ellos y productos nuevos (ids "u_…").
+ * Un producto o tamaño marcado "oculto" no se muestra al cobrar.
+ */
 export function mergeCatalogo(saved: unknown): Servicio[] {
   const cat: Servicio[] = structuredClone(DEFAULT_CATALOGO);
   if (!Array.isArray(saved)) return cat;
@@ -71,7 +87,18 @@ export function mergeCatalogo(saved: unknown): Servicio[] {
       const tv = sv.tams.find((x: any) => x && x.id === t.id); if (!tv) continue;
       const p = cents(tv.precio); if (p != null) t.precio = p;
       if (t.tramos && Array.isArray(tv.tramos)) t.tramos.forEach((tr, i) => { const q = cents(tv.tramos[i]?.precio); if (q != null) tr.precio = q; });
+      if (tv.oculto) (t as any).oculto = true;
     }
+    if (!s.tams.some(t => t.tramos)) for (const tv of sv.tams.slice(0, 40)) { const t = tamUsuario(tv); if (t && !s.tams.some(x => x.id === t.id)) s.tams.push(t); }
+    if (sv.oculto) (s as any).oculto = true;
+  }
+  for (const sv of saved.slice(0, 200) as any[]) {
+    if (!sv || !ID_USER.test(sv.id) || cat.some(x => x.id === sv.id)) continue;
+    const nombre = txt(sv.nombre, 80);
+    if (!nombre || !CATS.has(sv.cat)) continue;
+    const tams = (Array.isArray(sv.tams) ? sv.tams : []).slice(0, 40).map(tamUsuario).filter(Boolean) as Tam[];
+    if (!tams.length) continue;
+    cat.push({ id: sv.id, cat: sv.cat, nombre, color: !!sv.color, unidad: UNIDADES.has(sv.unidad) ? sv.unidad : 'unidad', tams, ...(sv.oculto ? { oculto: true } : {}) } as Servicio);
   }
   return cat;
 }

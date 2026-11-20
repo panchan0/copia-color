@@ -167,7 +167,7 @@ function range(url: URL, maxDays = 400) {
 
 const SALE_COLS = `s.id, s.numero, s.numero_anulado, s.fecha, s.hora, s.ts, s.client_id, s.client_name,
   COALESCE(s.contacto_tel, c.phone) AS tel, COALESCE(s.contacto_dm, c.dm) AS dm, COALESCE(s.contacto_email, c.email) AS email, c.ruc AS ruc,
-  s.operador, s.nota, s.estado, s.metodo, s.pagada_ts, s.pagada_fecha, s.pagada_hora,
+  s.operador, s.nota, s.origen, s.estado, s.metodo, s.pagada_ts, s.pagada_fecha, s.pagada_hora,
   s.subtotal_cents, s.itbms_cents, s.total_cents, s.paginas, s.anulada, s.anulada_ts`;
 const ITEM_COLS = 'i.sale_id, i.cat, i.tipo, i.tam, i.nombre, i.color, i.unidad, i.extra, i.cant, i.precio_cents, i.sub_cents';
 
@@ -229,8 +229,16 @@ export async function createSale(c: Ctx) {
   if (pagar && !METODOS.has(b.metodo)) throw new HttpError(400, 'Método de pago inválido');
   if (!Array.isArray(b.items) || b.items.length < 1 || b.items.length > 50) throw new HttpError(400, 'La orden no tiene líneas');
 
-  const prev = await c.env.DB.prepare('SELECT id FROM sales WHERE id = ? AND account_id = ?').bind(id, c.accountId).first();
-  if (prev) return json({ ok: true, duplicate: true, sale: await getSale(c.env, c.accountId, id) });
+  // Órdenes creadas desde el registro de una máquina: fecha original y sin duplicar
+  let origen: string | null = null, tsOrigen: number | null = null;
+  if (b.origen != null) {
+    origen = str(b.origen, 80);
+    if (!/^joblog:[0-9a-f]{16,64}$/.test(origen)) throw new HttpError(400, 'Origen inválido');
+    tsOrigen = Math.round(Number(b.ts));
+    if (!Number.isFinite(tsOrigen) || tsOrigen > Date.now() + 60000 || tsOrigen < Date.now() - 400 * 86400000) throw new HttpError(400, 'Fecha del trabajo inválida');
+  }
+  const prev = await c.env.DB.prepare('SELECT id FROM sales WHERE account_id = ? AND (id = ? OR (origen IS NOT NULL AND origen = ?))').bind(c.accountId, id, origen).first<{ id: string }>();
+  if (prev) return json({ ok: true, duplicate: true, sale: await getSale(c.env, c.accountId, prev.id) });
 
   const st = await getSettings(c.env, c.accountId);
   const items = b.items.map((it: any) => {
@@ -265,9 +273,8 @@ export async function createSale(c: Ctx) {
   });
   const bruto = items.reduce((a: number, x: any) => a + x.sub, 0);
   const tasa = st.itbms.tasa / 100;
-  let subtotal = bruto, itbms = 0;
-  if (st.itbms.modo === 'aparte') itbms = Math.round(bruto * tasa);
-  else if (st.itbms.modo === 'incluido') { subtotal = Math.round(bruto / (1 + tasa)); itbms = bruto - subtotal; }
+  // El ITBMS siempre se suma al precio
+  const subtotal = bruto, itbms = Math.round(bruto * tasa);
   const total = subtotal + itbms;
   const paginas = items.reduce((a: number, x: any) => a + x.cant, 0);
 
@@ -280,16 +287,16 @@ export async function createSale(c: Ctx) {
   const email = str(b.contacto_email, 120);
   if (email && !EMAIL_OK.test(email)) throw new HttpError(400, 'Correo de contacto inválido');
 
-  const ts = Date.now();
+  const ts = tsOrigen ?? Date.now();
   const { fecha, hora } = localParts(ts, st.tz);
   const stmts = [
     c.env.DB.prepare(`INSERT INTO sales (id, account_id, numero, fecha, hora, ts, client_id, client_name, contacto_tel, contacto_dm, contacto_email,
-                        operador, nota, estado, metodo, pagada_ts, pagada_fecha, pagada_hora, subtotal_cents, itbms_cents, total_cents, paginas)
+                        operador, nota, origen, estado, metodo, pagada_ts, pagada_fecha, pagada_hora, subtotal_cents, itbms_cents, total_cents, paginas)
                       VALUES (?, ?, (SELECT COALESCE(MAX(numero), 0) + 1 FROM sales WHERE account_id = ? AND anulada = 0),
-                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .bind(id, c.accountId, c.accountId, fecha, hora, ts, clientId, clientName,
         str(b.contacto_tel, 30) || null, str(b.contacto_dm, 60) || null, email || null,
-        str(b.operador, 60) || null, str(b.nota, 300) || null,
+        str(b.operador, 60) || null, str(b.nota, 300) || null, origen,
         pagar ? 'pagada' : 'pendiente', pagar ? b.metodo : null,
         pagar ? ts : null, pagar ? fecha : null, pagar ? hora : null,
         subtotal, itbms, total, paginas),
@@ -309,7 +316,11 @@ export async function paySale(c: Ctx) {
   const st = await getSettings(c.env, c.accountId);
   const ts = Date.now();
   const { fecha, hora } = localParts(ts, st.tz);
-  const r = await c.env.DB.prepare(`UPDATE sales SET estado = 'pagada', metodo = ?, pagada_ts = ?, pagada_fecha = ?, pagada_hora = ?
+  // Las órdenes importadas del registro se dan por cobradas el día del trabajo
+  const r = await c.env.DB.prepare(`UPDATE sales SET estado = 'pagada', metodo = ?,
+                                      pagada_ts = CASE WHEN origen IS NOT NULL THEN ts ELSE ? END,
+                                      pagada_fecha = CASE WHEN origen IS NOT NULL THEN fecha ELSE ? END,
+                                      pagada_hora = CASE WHEN origen IS NOT NULL THEN hora ELSE ? END
                                     WHERE id = ? AND account_id = ? AND estado = 'pendiente'`)
     .bind(b.metodo, ts, fecha, hora, c.params.id, c.accountId).run();
   if (!r.meta.changes) throw new HttpError(409, 'La orden ya no está pendiente');

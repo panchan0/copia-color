@@ -29,7 +29,7 @@ export function salesTable(sales, { anular = true, cobrar = true, pend = null, e
       <td class="dk c-cl">${v.client_name ? esc(v.client_name) : '<span class="muted">Contado</span>'}</td>
       <td class="c-d"><span class="mb c-cl">${v.client_name ? esc(v.client_name) : 'Contado'}</span>${det(v)}<span class="mb">${estadoTag(v)}${v.operador ? ` <span class="muted">· ${esc(v.operador)}</span>` : ''}</span></td>
       <td class="n num c-t"><b>${money(v.total_cents)}</b></td>
-      <td class="dk">${estadoTag(v)}</td>
+      <td class="dk">${estadoTag(v)}${v.origen ? ' <span class="tag t-log">Job Log</span>' : ''}</td>
       ${pago ? `<td class="dk num muted">${v.pagada_fecha ? `${dmy(v.pagada_fecha).slice(0, 5)} ${esc(v.pagada_hora || '')}` : '—'}</td>` : ''}
       <td class="dk muted">${esc(v.operador || '—')}</td>
       <td class="c-a">${acts}</td>

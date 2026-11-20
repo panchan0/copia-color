@@ -8,7 +8,7 @@ const SALES_V2 = `CREATE TABLE IF NOT EXISTS sales (
   fecha TEXT NOT NULL, hora TEXT NOT NULL, ts INTEGER NOT NULL,
   client_id TEXT, client_name TEXT,
   contacto_tel TEXT, contacto_dm TEXT, contacto_email TEXT,
-  operador TEXT, nota TEXT,
+  operador TEXT, nota TEXT, origen TEXT,
   estado TEXT NOT NULL DEFAULT 'pagada',
   metodo TEXT,
   pagada_ts INTEGER, pagada_fecha TEXT, pagada_hora TEXT,
@@ -46,6 +46,7 @@ const INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_sales_account_estado ON sales(account_id, estado)',
   'CREATE INDEX IF NOT EXISTS idx_sales_account_numero ON sales(account_id, numero)',
   'CREATE INDEX IF NOT EXISTS idx_items_sale ON sale_items(sale_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_origen ON sales(account_id, origen)',
 ];
 
 async function columns(env: Env, table: string) {
@@ -96,6 +97,8 @@ async function migrate(env: Env) {
   if (!cc.has('email')) add.push(env.DB.prepare('ALTER TABLE clients ADD COLUMN email TEXT'));
   if (!cc.has('dm')) add.push(env.DB.prepare('ALTER TABLE clients ADD COLUMN dm TEXT'));
   if (add.length) await env.DB.batch(add);
+  const sc = await columns(env, 'sales');
+  if (!sc.has('origen')) await env.DB.prepare('ALTER TABLE sales ADD COLUMN origen TEXT').run();
   await env.DB.batch(INDEXES.map(s => env.DB.prepare(s)));
 }
 

@@ -3,7 +3,8 @@ import { HttpError } from './http';
 
 const enc = new TextEncoder();
 const SESSION_DAYS = 30;
-const COOKIE = 'cc_sid';
+/** En https se usa el prefijo __Host- (solo este dominio, siempre Secure). */
+const cookieName = (url: URL) => (url.protocol === 'https:' ? '__Host-cc_sid' : 'cc_sid');
 
 const b64 = (buf: ArrayBuffer | Uint8Array) => {
   const u = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
@@ -44,18 +45,19 @@ export async function createSession(env: Env, accountId: string, req: Request): 
 
 export function sessionCookie(token: string, url: URL): string {
   const secure = url.protocol === 'https:' ? '; Secure' : '';
-  return `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${secure}`;
+  return `${cookieName(url)}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_DAYS * 86400}${secure}`;
 }
 export function clearCookie(url: URL): string {
   const secure = url.protocol === 'https:' ? '; Secure' : '';
-  return `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`;
+  return `${cookieName(url)}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure}`;
 }
 
 function readCookie(req: Request): string | null {
+  const name = cookieName(new URL(req.url));
   const c = req.headers.get('cookie') || '';
   for (const part of c.split(/;\s*/)) {
     const i = part.indexOf('=');
-    if (i > 0 && part.slice(0, i) === COOKIE) return part.slice(i + 1) || null;
+    if (i > 0 && part.slice(0, i) === name) return part.slice(i + 1) || null;
   }
   return null;
 }

@@ -1,8 +1,9 @@
 import { api } from '../api.js';
 import { S, today, on, syncNow, loadMe } from '../store.js';
 import { toast, ICON } from '../ui/dom.js';
-import { readText, parseCSV, guessMap, procesar } from '../csvlog.js';
-import { esc, int, addDays, dmy, cap, fechaCorta } from '../util.js';
+import { readText, parseCSV, guessMap, procesar, diasDelRegistro, proponerOrdenes } from '../csvlog.js';
+import { esc, int, addDays, dmy, cap, fechaCorta, money, uuid, calcItbms } from '../util.js';
+import { emit } from '../store.js';
 
 let root, dias = {}, prev = null;
 
@@ -27,7 +28,7 @@ export function show() { paintMaqs(); load(); }
 function paintMaqs() {
   root.querySelector('[data-maqs]').innerHTML = S.settings.maquinas.map(m => `<div class="card maq">
     <div class="row between"><div><div class="label" style="margin:0">Máquina</div><div class="maq-n">${esc(m.nombre)}</div></div>
-      <label class="btn">${ICON.down}Importar registro<input type="file" accept=".csv,.txt,text/csv" data-maq="${m.id}" multiple hidden></label></div>
+      <label class="btn">${ICON.down}Importar registro (.txt o .csv)<input type="file" accept=".csv,.txt,.tsv,.log,text/plain,text/csv,text/tab-separated-values" data-maq="${m.id}" multiple hidden></label></div>
     <p class="sub-note ayuda">${AYUDA[m.id] || ''}</p>
     ${m.map ? '<p class="sub-note">Las columnas de esta máquina ya están configuradas.</p>' : ''}
   </div>`).join('');
@@ -56,6 +57,10 @@ async function onFile(e) {
     const guardado = maq.map && maq.map.header === header.join('|') ? maq.map : null;
     prev = { maq, parsed, map: guardado ? { ...guardado } : { ...guessMap(header), multiplicar: false, header: header.join('|') }, nombres: [...inp.files].map(f => f.name).join(', ') };
     if (prev.map.copias < 0) prev.map.multiplicar = false;
+    prev.diasArchivo = diasDelRegistro(parsed, { ...prev.map, dias: undefined });
+    const lista = Object.keys(prev.diasArchivo).sort().reverse();
+    prev.map.dias = lista.slice(0, 1);
+    prev.excluir = new Set(); prev.precios = {};
     await paintPrev();
   } catch (err) { toast('No se pudo leer el archivo: ' + err.message, true); }
   inp.value = '';
@@ -66,8 +71,11 @@ async function paintPrev() {
   const { maq, parsed, map } = prev;
   const opts = sel => `<option value="-1">— ninguna —</option>${parsed.header.map((h, i) => `<option value="${i}"${i === sel ? ' selected' : ''}>${esc(h || 'Columna ' + (i + 1))}</option>`).join('')}`;
   const sinFechaCol = map.fecha < 0;
+  if (sinFechaCol) delete map.dias;
   const res = await procesar(parsed, map, maq.id, sinFechaCol ? (prev.fechaFija || today()) : null);
   prev.res = res;
+  prev.grupos = sinFechaCol || map.color < 0 ? [] : await proponerOrdenes(parsed, map, S.settings.catalogo);
+  const diasLista = Object.entries(prev.diasArchivo || {}).sort().reverse().filter(([f]) => f >= addDays(today(), -45)).slice(0, 40);
   const dias2 = Object.entries(res.porDia).sort();
   box.classList.remove('hide');
   box.innerHTML = `<div class="row between wrap"><div><div class="label" style="margin:0">Revisar importación</div><b>${esc(maq.nombre)}</b> · <span class="muted">${esc(prev.nombres)} · ${int(parsed.rows.length)} filas</span></div>
@@ -83,20 +91,31 @@ async function paintPrev() {
       <label class="check"><input type="checkbox" data-mult${map.multiplicar ? ' checked' : ''}> Multiplicar páginas por copias</label>
       ${sinFechaCol ? `<div class="field"><label>El archivo no trae fecha: asignar al día</label><input class="input" type="date" data-fija value="${prev.fechaFija || today()}"></div>` : ''}
     </div>
+    ${!sinFechaCol && diasLista.length ? `<div class="label" style="margin-top:16px">Días a importar</div>
+      <div class="diasel">${diasLista.map(([f, d]) => `<label class="dchip${map.dias?.includes(f) ? ' on' : ''}"><input type="checkbox" data-dia="${f}"${map.dias?.includes(f) ? ' checked' : ''}><b>${esc(cap(fechaCorta(f)))}</b><span>${int(d.trabajos)} trab. · ${int(d.color)} color</span></label>`).join('')}</div>` : ''}
     <table class="dtable" style="margin-top:12px"><thead><tr><th>Día</th><th>Trabajos</th><th>Págs color</th><th>Págs B/N</th></tr></thead><tbody>
     ${dias2.map(([f, d]) => `<tr><td>${dmy(f)}</td><td class="num">${int(d.trabajos)}</td><td class="num"><b>${int(d.color)}</b></td><td class="num">${int(d.bn)}</td></tr>`).join('') || '<tr><td class="empty" colspan="4">No se encontraron trabajos con estas columnas. Ajusta las columnas de arriba.</td></tr>'}
     </tbody></table>
     ${res.sinFecha ? `<p class="sub-note">${int(res.sinFecha)} filas sin fecha válida se omitieron.</p>` : ''}
     <p class="sub-note">Los trabajos que ya se importaron antes se ignoran, así que puedes subir el mismo archivo más de una vez sin duplicar.</p>
-    <button class="btn" data-save ${res.filas.length ? '' : 'disabled'}>Guardar ${int(res.filas.length)} trabajos</button>`;
+    <button class="btn" data-save ${res.filas.length ? '' : 'disabled'}>Guardar conteo de la máquina (${int(res.filas.length)} trabajos)</button>
+    ${ordenesHTML()}`;
   box.querySelectorAll('[data-m]').forEach(s => s.addEventListener('change', () => { map[s.dataset.m] = s.dataset.m === 'orden' ? s.value : Number(s.value); paintPrev(); }));
   box.querySelector('[data-mult]').addEventListener('change', e => { map.multiplicar = e.target.checked; paintPrev(); });
   box.querySelector('[data-fija]')?.addEventListener('change', e => { prev.fechaFija = e.target.value; paintPrev(); });
+  box.querySelectorAll('[data-dia]').forEach(c => c.addEventListener('change', () => {
+    c.closest('.dchip').classList.toggle('on', c.checked);
+    map.dias = [...box.querySelectorAll('[data-dia]:checked')].map(x => x.dataset.dia); paintPrev();
+  }));
+  box.querySelectorAll('[data-gx]').forEach(c => c.addEventListener('change', () => { if (c.checked) prev.excluir.delete(c.dataset.gx); else prev.excluir.add(c.dataset.gx); paintPrev(); }));
+  box.querySelectorAll('[data-pp]').forEach(i => i.addEventListener('change', () => { prev.precios[i.dataset.pp] = Math.round(Number(i.value) * 100) || 0; paintPrev(); }));
   box.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function onClick(e) {
   if (e.target.closest('[data-cancel]')) { prev = null; root.querySelector('[data-prev]').classList.add('hide'); return; }
+  const mk = e.target.closest('[data-mkord]');
+  if (mk && prev) return crearOrdenes(mk);
   const save = e.target.closest('[data-save]');
   if (save && prev?.res) {
     save.disabled = true;
@@ -108,7 +127,6 @@ async function onClick(e) {
         nuevos += r.nuevos; rep += r.repetidos;
       }
       toast(`${int(nuevos)} trabajos guardados${rep ? ` · ${int(rep)} ya estaban` : ''}`);
-      prev = null; root.querySelector('[data-prev]').classList.add('hide');
       await loadMe(); paintMaqs(); syncNow(); load();
     } catch (err) { toast(err.message, true); save.disabled = false; }
     return;
@@ -119,4 +137,56 @@ async function onClick(e) {
     try { await api(`/api/machine-jobs?maquina=${del.dataset.del}&fecha=${del.dataset.f}`, { method: 'DELETE' }); toast('Registros del día borrados'); syncNow(); load(); }
     catch (err) { toast(err.message, true); }
   }
+}
+
+/* ---------- Crear órdenes desde el registro ---------- */
+const nombreServ = (id, tam) => {
+  const sv = S.settings.catalogo.find(x => x.id === id), t = sv?.tams.find(x => x.id === tam);
+  return `${sv?.nombre || id} · ${t?.nombre || tam}`;
+};
+const precioLinea = l => l.precio_cents || prev.precios[`${l.serv}|${l.tam}`] || 0;
+
+function ordenesHTML() {
+  const gs = prev.grupos || [];
+  if (!gs.length) return '';
+  const faltan = new Map();
+  for (const g of gs) for (const l of g.lineas) if (!l.precio_cents) faltan.set(`${l.serv}|${l.tam}`, nombreServ(l.serv, l.tam));
+  const incluidas = gs.filter(g => !prev.excluir.has(g.origen));
+  const sinPrecio = [...faltan.keys()].some(k => !prev.precios[k] && incluidas.some(g => g.lineas.some(l => `${l.serv}|${l.tam}` === k)));
+  return `<div class="ordimp">
+    <div class="label" style="margin-top:22px">Órdenes de venta propuestas</div>
+    <p class="sub-note">Trabajos seguidos (hasta 15 min entre uno y otro) con nombres de archivo parecidos se unen en una orden; si no se puede saber, quedan separados. Se crean como <b>pendientes de cobro</b>: al cobrarlas eliges el método y quedan con la fecha del trabajo.</p>
+    ${faltan.size ? `<div class="grid2" style="margin:10px 0">${[...faltan].map(([k, n]) => `<div class="field"><label>Precio de ${esc(n)} (no está en Ajustes)</label><input class="input" type="number" step="0.01" min="0" data-pp="${k}" value="${prev.precios[k] ? (prev.precios[k] / 100).toFixed(2) : ''}" placeholder="0.00"></div>`).join('')}</div>` : ''}
+    <div style="overflow-x:auto"><table class="dtable gtab"><thead><tr><th></th><th>Fecha</th><th>Archivos</th><th>Producto</th><th>Total con ITBMS</th></tr></thead><tbody>
+    ${gs.map(g => {
+      const bruto = g.lineas.reduce((a, l) => a + Math.round(precioLinea(l) * l.cant), 0);
+      return `<tr class="${prev.excluir.has(g.origen) ? 'off' : ''}"><td><input type="checkbox" data-gx="${g.origen}"${prev.excluir.has(g.origen) ? '' : ' checked'}></td>
+        <td class="num">${dmy(g.fecha)}<br><span class="muted">${esc(g.hora)}</span></td>
+        <td>${g.titulos.map(t => `<div>${esc(t)}</div>`).join('')}</td>
+        <td>${g.lineas.map(l => `<div>${int(l.cant)} × ${esc(nombreServ(l.serv, l.tam))} <span class="muted">${precioLinea(l) ? money(precioLinea(l)) : 'sin precio'}${l.extra ? ' · ' + esc(l.extra) : ''}</span></div>`).join('')}</td>
+        <td class="num"><b>${money(calcItbms(bruto, S.settings.itbms).total)}</b></td></tr>`;
+    }).join('')}</tbody></table></div>
+    <button class="btn" style="margin-top:12px" data-mkord ${incluidas.length && !sinPrecio ? '' : 'disabled'}>Crear ${incluidas.length} orden${incluidas.length === 1 ? '' : 'es'} pendientes</button>
+    ${sinPrecio ? '<p class="sub-note">Escribe los precios que faltan para poder crear las órdenes.</p>' : ''}
+  </div>`;
+}
+
+async function crearOrdenes(btn) {
+  const gs = (prev.grupos || []).filter(g => !prev.excluir.has(g.origen));
+  btn.disabled = true;
+  let creadas = 0, repetidas = 0;
+  try {
+    for (const g of gs) {
+      const body = {
+        id: uuid(), origen: g.origen, ts: g.ts, metodo: null, operador: 'Job Log',
+        nota: `Importado del registro de ${prev.maq.nombre}: ${g.titulos.join(', ')}`.slice(0, 300),
+        items: g.lineas.map(l => ({ serv: l.serv, tam: l.tam, cant: l.cant, precio_cents: precioLinea(l), extra: l.extra || undefined })),
+      };
+      const r = await api('/api/sales', { method: 'POST', body });
+      if (r.duplicate) repetidas++; else creadas++;
+    }
+    toast(`${creadas} órdenes creadas${repetidas ? ` · ${repetidas} ya existían` : ''}`);
+    emit('sale'); syncNow();
+  } catch (err) { toast(err.message, true); }
+  btn.disabled = false;
 }

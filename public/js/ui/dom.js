@@ -29,8 +29,12 @@ export function dialog({ title, fields = [], html = '', ok = 'Guardar', cancel =
     ov.className = 'overlay';
     ov.innerHTML = `<form class="dialog" novalidate>
       <h3>${esc(title)}</h3>${html}
-      ${fields.map((f, i) => `<div class="field" style="margin-bottom:10px"><label for="dlg${i}">${esc(f.label)}</label>
-        <input class="input" id="dlg${i}" name="${f.name}" type="${f.type || 'text'}" value="${esc(f.value ?? '')}" ${f.placeholder ? `placeholder="${esc(f.placeholder)}"` : ''} ${f.autocomplete ? `autocomplete="${f.autocomplete}"` : ''}></div>`).join('')}
+      ${fields.map((f, i) => f.type === 'checkbox'
+        ? `<label class="check" style="margin-bottom:10px"><input type="checkbox" id="dlg${i}" name="${f.name}" value="1" ${f.value ? 'checked' : ''}> ${esc(f.label)}</label>`
+        : f.type === 'select'
+        ? `<div class="field" style="margin-bottom:10px"><label for="dlg${i}">${esc(f.label)}</label><select class="input" id="dlg${i}" name="${f.name}">${f.options.map(([v, l]) => `<option value="${esc(v)}"${v === f.value ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>`
+        : `<div class="field" style="margin-bottom:10px"><label for="dlg${i}">${esc(f.label)}</label>
+        <input class="input" id="dlg${i}" name="${f.name}" type="${f.type || 'text'}" value="${esc(f.value ?? '')}" ${f.step ? `step="${f.step}"` : ''} ${f.placeholder ? `placeholder="${esc(f.placeholder)}"` : ''} ${f.autocomplete ? `autocomplete="${f.autocomplete}"` : ''}></div>`).join('')}
       <div class="err" style="color:var(--bad);font-size:14px;font-weight:600;min-height:18px"></div>
       <div class="acts">${cancel ? `<button type="button" class="btn line" data-x>${esc(cancel)}</button>` : ''}<button class="btn ${danger ? 'danger' : ''}" type="submit">${esc(ok)}</button></div>
     </form>`;

@@ -39,6 +39,9 @@ Después de cambiar el código, ejecuta `npm run deploy`. Si agregas una migraci
 ## Registros de las máquinas
 En la sección **Máquinas** se sube el CSV del Job Log de Fiery (Versant 180) o el informe de la WorkCentre 7845i. La app reconoce las columnas, guarda la configuración por máquina e ignora los trabajos que ya estaban importados.
 
+### Crear órdenes desde el registro
+Al importar, se eligen los días y la app propone órdenes: une trabajos seguidos (hasta 15 min) con nombres de archivo parecidos; si no puede saberlo, los deja separados. Se crean como pendientes y, al cobrarlas, quedan con la fecha del trabajo. No se duplican si se importa otra vez.
+
 ## Respaldos
 - **Automático:** D1 tiene *Time Travel*, que permite restaurar la base a cualquier minuto de los últimos 7 días en el plan gratis, o de los últimos 30 días en el plan Workers Paid de $5 al mes.
   `npx wrangler d1 time-travel restore copias-color-db --timestamp=2026-11-19T20:00:00Z`
@@ -63,6 +66,8 @@ public/js/export.js Excel (carta vertical, ajustado al ancho de 1 página) e imp
 ```
 
 ## Seguridad
+- Encabezados de seguridad en todas las páginas (`public/_headers`): CSP sin scripts externos, HSTS, sin iframes, sin rastreo de referer.
+- Cookie de sesión `__Host-` con SameSite=Strict.
 - Las contraseñas se guardan cifradas con PBKDF2-SHA256 y una sal aleatoria.
 - La sesión dura 30 días y se renueva sola. Se guarda en una cookie HttpOnly y SameSite=Lax.
 - Hay un límite de intentos de inicio de sesión: 8 cada 15 minutos por correo.
