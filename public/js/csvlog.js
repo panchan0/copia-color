@@ -42,12 +42,12 @@ const find = (header, tests, avoid = []) => {
 
 /** Propone qué columna es cada dato. */
 export function guessMap(header) {
-  const color = find(header, [/total number of colou?r pages/, /colou?r pages/, /paginas? (a |de )?colou?r/, /colou?r impressions/, /impresiones? (a |de )?colou?r/, /^colou?r$/], [/mode|modo/]);
-  const bn = find(header, [/(b\/w|black|mono|grayscale|blanco|byn|b&w).*(pages|paginas|impres)/, /(pages|paginas|impres).*(b\/w|black|mono|blanco)/]);
+  const color = find(header, [/pasadas? en colou?r/, /total number of colou?r pages/, /colou?r pages/, /paginas? (a |de )?colou?r/, /colou?r impressions/, /impresiones? (a |de )?colou?r/, /^colou?r$/], [/mode|modo/]);
+  const bn = find(header, [/pasadas? en negro/, /(b\/w|black|mono|grayscale|blanco|byn|b&w).*(pages|paginas|impres)/, /(pages|paginas|impres).*(b\/w|black|mono|blanco)/]);
   const modo = find(header, [/colou?r mode/, /modo de colou?r/, /output colou?r/, /colou?r/], [/pages|paginas|impres/]);
-  const total = find(header, [/total number of (pages|sheets|impressions) printed/, /pages printed/, /paginas impresas/, /impressions/, /impresiones/, /^pages$/, /^paginas$/, /sheets/, /hojas/], [/colou?r|b\/w|black|mono/]);
+  const total = find(header, [/total de hojas impresas/, /total de pasadas/, /total number of (pages|sheets|impressions) printed/, /pages printed/, /paginas impresas/, /impressions/, /impresiones/, /^pages$/, /^paginas$/, /sheets/, /hojas/], [/colou?r|b\/w|black|mono/]);
   const copias = find(header, [/^copies$/, /^copias$/, /number of copies/, /copies printed/]);
-  const fecha = find(header, [/print(ed)? (date|time|start)/, /fecha.*impres/, /first page printed/, /end time|start time/, /date/, /fecha/, /time/, /hora/], [/creat|recep|reception/]);
+  const fecha = find(header, [/^fecha\/hora/, /impresion completada/, /print(ed)? (date|time|start)/, /fecha.*impres/, /first page printed/, /end time|start time/, /date/, /fecha/, /time/, /hora/], [/creat|recep|reception/]);
   return { fecha, color, bn, modo, total, copias, orden: 'auto' };
 }
 
