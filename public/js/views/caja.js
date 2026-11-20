@@ -1,8 +1,10 @@
 import { api } from '../api.js';
 import { S, today, on, emit, syncNow } from '../store.js';
-import { $, toast } from '../ui/dom.js';
+import { $, toast, choice, ICON } from '../ui/dom.js';
+import { salesTable, bindOrden } from '../ui/salestable.js';
+import { imprimirOrden, descargarOrden, numOrden } from '../workorder.js';
 import { metodoPicker, clientePicker } from '../ui/pickers.js';
-import { esc, money, int, toCents, uuid, TIPOS, TAMS, METODOS, itemLabel, itemLabelLower } from '../util.js';
+import { esc, money, int, toCents, uuid, TAMS, METODOS, itemLabel, calcItbms } from '../util.js';
 
 let root, tipo = 'imp', tam = 'carta', cant = 1, ticket = [], metodo = null, clientId = null, paying = false;
 let paintMetodo, paintCliente, recientes = [], pendingId = null;
@@ -12,7 +14,8 @@ const nombre = () => tam === 'otro' ? ($('#otroNombre', root).value.trim() || 'O
 const linea = () => { const p = precio(); return { tipo, tam, nombre: nombre(), cant, precio_cents: p, sub_cents: p * cant }; };
 const lineaOk = () => cant > 0 && precio() > 0;
 const items = () => ticket.length ? ticket : (lineaOk() ? [linea()] : []);
-const total = () => items().reduce((a, b) => a + b.sub_cents, 0);
+const bruto = () => items().reduce((a, b) => a + b.sub_cents, 0);
+const total = () => calcItbms(bruto(), S.settings.itbms).total;
 
 export function mount(el) {
   root = el;
@@ -33,15 +36,12 @@ export function mount(el) {
         <div class="lineprev"><span data-ldesc></span><b data-lsub></b></div>
         <button class="btn ghost block" data-add>+ Agregar otra línea</button>
       </div>
-      <div class="card recent">
-        <div class="label">Últimas ventas de hoy</div>
-        <div data-recent></div>
-      </div>
     </div>
     <div class="c-side">
       <div class="card c-ticket">
         <div class="row between"><div class="label" style="margin:0">Ticket</div><button class="btn ghost sm hide" data-clear>Vaciar</button></div>
         <div data-lines style="margin-top:6px"></div>
+        <div class="ticket-sub" data-tsub></div>
         <div class="ticket-total"><span class="label" style="margin:0">Total</span><span class="big" data-total>$0.00</span></div>
       </div>
       <div class="card c-pago">
@@ -53,6 +53,10 @@ export function mount(el) {
         </div>
         <button class="btn block pay" data-pay>Cobrar</button>
       </div>
+    </div>
+    <div class="card c-rec">
+      <div class="label">Últimas ventas de hoy</div>
+      <div data-recent></div>
     </div>
   </div>`;
 
@@ -72,6 +76,7 @@ export function mount(el) {
   paintCliente = clientePicker(root.querySelector('[data-cli]'), () => clientId, v => { clientId = v; });
   $('#recibe', root).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); cobrar(); } });
   root.querySelector('[data-pay]').onclick = cobrar;
+  bindOrden(root.querySelector('[data-recent]'), id => recientes.find(v => v.id === id));
   on(what => { if (what === 'remote') { if (clientId && !S.clients.some(c => c.id === clientId)) clientId = null; paintCliente(); paint(); loadRecientes(); } });
 }
 
@@ -99,8 +104,10 @@ function paint() {
     ? ticket.map((it, i) => `<div class="tline"><span class="q">${int(it.cant)}×</span><span class="d">${esc(itemLabel(it))}<small>${money(it.precio_cents)} c/u</small></span><b class="num">${money(it.sub_cents)}</b><button class="x" data-i="${i}" aria-label="Quitar">×</button></div>`).join('')
     : '';
   root.querySelector('[data-clear]').classList.toggle('hide', !ticket.length);
-  const t = total();
+  const cx = calcItbms(bruto(), S.settings.itbms), t = cx.total;
   root.querySelector('[data-total]').textContent = money(t);
+  root.querySelector('[data-tsub]').innerHTML = S.settings.itbms.modo === 'no' || t <= 0 ? ''
+    : `<div><span>Subtotal</span><span class="num">${money(cx.sub)}</span></div><div><span>ITBMS ${S.settings.itbms.tasa}%</span><span class="num">${money(cx.itbms)}</span></div>`;
   root.querySelector('[data-cash]').classList.toggle('hide', metodo !== 'efectivo');
   const rec = toCents($('#recibe', root).value);
   root.querySelector('[data-cambio]').value = rec > 0 ? (rec >= t ? money(rec - t) : 'Falta ' + money(t - rec)) : '—';
@@ -120,7 +127,16 @@ async function cobrar() {
   try {
     const body = { id: pendingId, metodo, client_id: clientId, items: its.map(it => ({ tipo: it.tipo, tam: it.tam, nombre: it.nombre, cant: it.cant, precio_cents: it.precio_cents })) };
     const r = await api('/api/sales', { method: 'POST', body });
-    toast(`Venta registrada · ${money(r.total_cents ?? total())} · ${METODOS[metodo]}`);
+    const v = r.sale;
+    choice({
+      title: `Venta registrada · Orden N° ${numOrden(v.numero)}`,
+      html: `<p class="sub-note" style="margin:-6px 0 4px">${esc(v.client_name || 'Contado')} · ${money(v.total_cents)} · ${METODOS[v.metodo]}</p>`,
+      buttons: [
+        { label: `${ICON.print}Imprimir orden`, cls: 'line', keep: true, onClick: () => imprimirOrden(v) },
+        { label: `${ICON.down}Descargar PDF`, cls: 'line', keep: true, onClick: () => descargarOrden(v) },
+        { label: 'Listo', value: true },
+      ],
+    });
     pendingId = null; ticket = []; cant = 1; metodo = null; clientId = null;
     $('#recibe', root).value = '';
     if (tam === 'otro') { $('#otroNombre', root).value = ''; $('#otroPrecio', root).value = ''; }
@@ -137,9 +153,7 @@ async function loadRecientes() {
   const t = today();
   try {
     const r = await api(`/api/sales?from=${t}&to=${t}`);
-    recientes = r.sales.filter(v => !v.anulada).slice(-8).reverse();
+    recientes = r.sales.slice(-10).reverse();
   } catch { recientes = []; }
-  const box = root.querySelector('[data-recent]');
-  box.innerHTML = recientes.length ? recientes.map(v => `<div class="r"><span class="h">${esc(v.hora)}</span><span>${v.client_name ? `<b style="font-family:inherit">${esc(v.client_name)}</b> · ` : ''}${esc(v.items.map(it => int(it.cant) + ' ' + itemLabelLower(it)).join(', '))} <span class="tag m-${v.metodo}">${METODOS[v.metodo]}</span></span><b>${money(v.total_cents)}</b></div>`).join('')
-    : '<div class="empty">Sin ventas hoy</div>';
+  root.querySelector('[data-recent]').innerHTML = salesTable(recientes, { anular: false, empty: 'Sin ventas hoy' });
 }

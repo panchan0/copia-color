@@ -18,9 +18,31 @@ const SCHEMA = [
 
 let ready: Promise<void> | null = null;
 
-export function ensureSchema(env: Env): Promise<void> {
-  if (!ready) {
-    ready = env.DB.batch(SCHEMA.map(s => env.DB.prepare(s))).then(() => undefined).catch(e => { ready = null; throw e; });
+/** Columnas agregadas después de la primera versión */
+const COLUMNS: [string, string, string][] = [
+  ['sales', 'numero', 'INTEGER'],
+  ['sales', 'subtotal_cents', 'INTEGER'],
+  ['sales', 'itbms_cents', 'INTEGER NOT NULL DEFAULT 0'],
+];
+
+async function migrate(env: Env) {
+  await env.DB.batch(SCHEMA.map(s => env.DB.prepare(s)));
+  const cols = await env.DB.prepare("SELECT name FROM pragma_table_info('sales')").all<{ name: string }>();
+  const have = new Set(cols.results.map(r => r.name));
+  const add = COLUMNS.filter(([t, c]) => t === 'sales' && !have.has(c));
+  if (add.length) {
+    await env.DB.batch([
+      ...add.map(([t, c, d]) => env.DB.prepare(`ALTER TABLE ${t} ADD COLUMN ${c} ${d}`)),
+      // Numerar las ventas que ya existían, en orden de hora, por cuenta
+      env.DB.prepare(`UPDATE sales SET numero = (SELECT COUNT(*) FROM sales s2 WHERE s2.account_id = sales.account_id
+                      AND (s2.ts < sales.ts OR (s2.ts = sales.ts AND s2.id <= sales.id))) WHERE numero IS NULL`),
+      env.DB.prepare('UPDATE sales SET subtotal_cents = total_cents WHERE subtotal_cents IS NULL'),
+    ]);
   }
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_sales_account_numero ON sales(account_id, numero)').run();
+}
+
+export function ensureSchema(env: Env): Promise<void> {
+  if (!ready) ready = migrate(env).catch(e => { ready = null; throw e; });
   return ready;
 }

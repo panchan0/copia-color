@@ -4,7 +4,8 @@ import { $, toast, ICON } from '../ui/dom.js';
 import { openCalendar } from '../ui/calendar.js';
 import { exportMenu } from '../ui/pickers.js';
 import { exportExcel, printReport } from '../export.js';
-import { esc, money, int, addDays, fechaLarga, cap, statsFromSales, pagTipo, analizarCierre, METODOS, itemLabelLower, toCents, centsToInput } from '../util.js';
+import { salesTable, bindOrden } from '../ui/salestable.js';
+import { esc, money, int, addDays, fechaLarga, cap, statsFromSales, pagTipo, analizarCierre, METODOS, toCents, centsToInput } from '../util.js';
 
 let root, fecha = null, sales = [], closing = null, loading = false, reqId = 0, cierreDirty = false, anularPend = null;
 
@@ -27,40 +28,35 @@ export function mount(el) {
     <div class="spacer"></div>
     <button class="btn line" data-exp>${ICON.down}Descargar / Imprimir</button>
   </div>
-  <div class="lay-dia">
-    <div class="d-res">
-      <div class="card">
-        <div class="label">Vendido</div>
-        <div class="big" data-total>$0.00</div>
-        <div class="bar"><i data-bar style="width:0"></i></div>
-        <div class="sub-note" data-meta></div>
-      </div>
-      <div class="kpis">
-        <div class="kpi"><div class="label" style="margin:0">Impresiones</div><div class="v" data-kimp>0</div><div class="s" data-kimps></div></div>
-        <div class="kpi"><div class="label" style="margin:0">Copias</div><div class="v" data-kcop>0</div><div class="s" data-kcops></div></div>
-      </div>
-      <div class="card"><div class="label">Por método de pago</div><div data-met></div></div>
+  <div class="strip">
+    <div class="kpi k-total">
+      <div class="label" style="margin:0">Vendido</div>
+      <div class="big" data-total>$0.00</div>
+      <div class="bar"><i data-bar style="width:0"></i></div>
+      <div class="s" data-meta></div>
     </div>
-    <div class="card d-ven">
-      <div class="label" data-vtitle>Ventas</div>
-      <div class="sales">
-        <div class="shead"><span>Hora</span><span>Cliente</span><span>Detalle</span><span>Pago</span><span style="text-align:right">Total</span><span></span></div>
-        <div data-list></div>
-      </div>
+    <div class="kpi"><div class="label" style="margin:0">Impresiones</div><div class="v" data-kimp>0</div><div class="s" data-kimps></div></div>
+    <div class="kpi"><div class="label" style="margin:0">Copias</div><div class="v" data-kcop>0</div><div class="s" data-kcops></div></div>
+    <div class="kpi m-efectivo"><div class="label" style="margin:0"><span class="dot"></span> Efectivo</div><div class="v" data-m-efectivo>$0.00</div><div class="s" data-n-efectivo></div></div>
+    <div class="kpi m-tarjeta"><div class="label" style="margin:0"><span class="dot"></span> Tarjeta</div><div class="v" data-m-tarjeta>$0.00</div><div class="s" data-n-tarjeta></div></div>
+    <div class="kpi m-yappy"><div class="label" style="margin:0"><span class="dot"></span> Yappy</div><div class="v" data-m-yappy>$0.00</div><div class="s" data-n-yappy></div></div>
+  </div>
+  <div class="card">
+    <div class="row between"><div class="label" style="margin:0" data-vtitle>Ventas</div><div class="sub-note" style="margin:0" data-vtot></div></div>
+    <div data-list style="margin-top:8px"></div>
+  </div>
+  <div class="card cierre">
+    <div class="label">Cierre del día</div>
+    <div class="cgrid">
+      <div class="field"><label for="cInicio">Contador color al abrir</label><input class="input" id="cInicio" type="number" inputmode="numeric" min="0"></div>
+      <div class="field"><label for="cFin">Contador color al cerrar</label><input class="input" id="cFin" type="number" inputmode="numeric" min="0"></div>
+      <div class="field"><label for="cFiery">Páginas color Fiery</label><input class="input" id="cFiery" type="number" inputmode="numeric" min="0"></div>
+      <div class="field"><label for="cEf">Efectivo en caja</label><input class="input" id="cEf" type="number" inputmode="decimal" step="0.01" min="0"></div>
+      <div class="field c-nota"><label for="cNota">Nota</label><input class="input" id="cNota" maxlength="300"></div>
+      <div class="field c-btn"><label>&nbsp;</label><button class="btn" data-save>Guardar cierre</button></div>
     </div>
-    <div class="card d-cie">
-      <div class="label">Cierre del día</div>
-      <div class="grid2">
-        <div class="field"><label for="cInicio">Contador color al abrir</label><input class="input" id="cInicio" type="number" inputmode="numeric" min="0"></div>
-        <div class="field"><label for="cFin">Contador color al cerrar</label><input class="input" id="cFin" type="number" inputmode="numeric" min="0"></div>
-        <div class="field"><label for="cFiery">Páginas color Fiery</label><input class="input" id="cFiery" type="number" inputmode="numeric" min="0"></div>
-        <div class="field"><label for="cEf">Efectivo en caja</label><input class="input" id="cEf" type="number" inputmode="decimal" step="0.01" min="0"></div>
-      </div>
-      <div class="field" style="margin-top:10px"><label for="cNota">Nota</label><input class="input" id="cNota" maxlength="300"></div>
-      <div data-res></div>
-      <div class="ref" data-ref></div>
-      <button class="btn block" style="margin-top:14px" data-save>Guardar cierre</button>
-    </div>
+    <div class="cres" data-res></div>
+    <div class="ref" data-ref></div>
   </div>`;
 
   root.querySelector('[data-prev]').onclick = () => setFecha(addDays(fecha, -1));
@@ -80,6 +76,7 @@ export function mount(el) {
   ['cInicio', 'cFin', 'cFiery', 'cEf', 'cNota'].forEach(id => $('#' + id, root).addEventListener('input', () => { cierreDirty = true; paintCierre(); }));
   root.querySelector('[data-save]').onclick = guardarCierre;
   root.querySelector('[data-list]').addEventListener('click', onListClick);
+  bindOrden(root.querySelector('[data-list]'), id => sales.find(v => v.id === id));
 
   on(what => { if (what === 'remote' || what === 'sale') load(true); });
   if (!fecha) fecha = today();
@@ -136,24 +133,13 @@ function paint() {
   root.querySelector('[data-kimps]').textContent = `Carta ${int(s.pag.imp.carta)} · Legal ${int(s.pag.imp.legal)}${s.pag.imp.otro ? ' · Otro ' + int(s.pag.imp.otro) : ''}`;
   root.querySelector('[data-kcop]').textContent = int(pagTipo(s, 'cop'));
   root.querySelector('[data-kcops]').textContent = `Carta ${int(s.pag.cop.carta)} · Legal ${int(s.pag.cop.legal)}${s.pag.cop.otro ? ' · Otro ' + int(s.pag.cop.otro) : ''}`;
-  root.querySelector('[data-met]').innerHTML = Object.entries(METODOS).map(([k, l]) =>
-    `<div class="mrow m-${k}"><span class="dot"></span><span>${l}</span><span class="n">${s.met[k].n}</span><span class="a">${money(s.met[k].t)}</span></div>`).join('');
+  for (const k of Object.keys(METODOS)) {
+    root.querySelector(`[data-m-${k}]`).textContent = money(s.met[k].t);
+    root.querySelector(`[data-n-${k}]`).textContent = `${s.met[k].n} venta${s.met[k].n === 1 ? '' : 's'}`;
+  }
   root.querySelector('[data-vtitle]').textContent = s.n ? `Ventas · ${s.n}` : 'Ventas';
-  const list = root.querySelector('[data-list]');
-  if (loading) list.innerHTML = '<div class="empty">Cargando…</div>';
-  else if (!sales.length) list.innerHTML = '<div class="empty">Sin ventas</div>';
-  else list.innerHTML = sales.slice().reverse().map(v => {
-    const det = v.items.map(it => `${int(it.cant)} ${itemLabelLower(it)}`).join(', ');
-    const an = !v.anulada ? `<button class="an" data-id="${esc(v.id)}">${anularPend === v.id ? '¿Anular?' : 'Anular'}</button>` : '<small>Anulada</small>';
-    return `<div class="srow${v.anulada ? ' void' : ''}">
-      <span class="h">${esc(v.hora)}</span>
-      <span class="c-cl cl">${v.client_name ? esc(v.client_name) : '<span style="color:var(--muted);font-weight:500">—</span>'}</span>
-      <span class="det">${v.client_name ? `<span class="det-m cl">${esc(v.client_name)} · </span>` : ''}${esc(det)}<span class="det-m"><br><span class="tag m-${v.metodo}">${METODOS[v.metodo]}</span></span></span>
-      <span class="c-pay"><span class="tag m-${v.metodo}">${METODOS[v.metodo]}</span></span>
-      <span class="amt">${money(v.total_cents)}<span class="det-m"><br>${an}</span></span>
-      <span class="c-act" style="text-align:right">${an}</span>
-    </div>`;
-  }).join('');
+  root.querySelector('[data-vtot]').textContent = s.n ? `Subtotal ${money(s.sub)} · ITBMS ${money(s.itbms)} · Total ${money(s.total)}` : '';
+  root.querySelector('[data-list]').innerHTML = salesTable(sales.slice().reverse(), { pend: anularPend, loading });
   paintCierre();
 }
 

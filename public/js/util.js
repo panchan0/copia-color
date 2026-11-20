@@ -47,20 +47,20 @@ export function statsFromSales(sales) {
   const s = emptyDay();
   for (const v of sales) {
     if (v.anulada) continue;
-    s.n++; s.total += v.total_cents;
+    s.n++; s.total += v.total_cents; s.sub += v.subtotal_cents ?? v.total_cents; s.itbms += v.itbms_cents || 0;
     if (s.met[v.metodo]) { s.met[v.metodo].n++; s.met[v.metodo].t += v.total_cents; }
     for (const it of v.items || []) { const g = s.pag[it.tipo]; if (g) g[it.tam in g ? it.tam : 'otro'] += it.cant; }
   }
   return s;
 }
 export function emptyDay() {
-  return { n: 0, total: 0, met: { efectivo: { n: 0, t: 0 }, tarjeta: { n: 0, t: 0 }, yappy: { n: 0, t: 0 } }, pag: { imp: { carta: 0, legal: 0, otro: 0 }, cop: { carta: 0, legal: 0, otro: 0 } } };
+  return { n: 0, total: 0, sub: 0, itbms: 0, met: { efectivo: { n: 0, t: 0 }, tarjeta: { n: 0, t: 0 }, yappy: { n: 0, t: 0 } }, pag: { imp: { carta: 0, legal: 0, otro: 0 }, cop: { carta: 0, legal: 0, otro: 0 } } };
 }
 export function sumDays(list) {
   const s = emptyDay();
   for (const d of list) {
     if (!d) continue;
-    s.n += d.n; s.total += d.total;
+    s.n += d.n; s.total += d.total; s.sub += d.sub ?? d.total; s.itbms += d.itbms || 0;
     for (const k in s.met) { s.met[k].n += d.met[k].n; s.met[k].t += d.met[k].t; }
     for (const t in s.pag) for (const k in s.pag[t]) s.pag[t][k] += d.pag[t][k];
   }
@@ -68,6 +68,14 @@ export function sumDays(list) {
 }
 export const pagTipo = (s, t) => s.pag[t].carta + s.pag[t].legal + s.pag[t].otro;
 export const pagTotal = s => pagTipo(s, 'imp') + pagTipo(s, 'cop');
+
+/** Desglose de ITBMS de un monto bruto, igual que el servidor */
+export function calcItbms(bruto, cfg) {
+  const t = (cfg?.tasa ?? 7) / 100;
+  if (cfg?.modo === 'aparte') { const i = Math.round(bruto * t); return { sub: bruto, itbms: i, total: bruto + i }; }
+  if (cfg?.modo === 'incluido') { const sub = Math.round(bruto / (1 + t)); return { sub, itbms: bruto - sub, total: bruto }; }
+  return { sub: bruto, itbms: 0, total: bruto };
+}
 
 /** Comparación del cierre con lo vendido */
 export function analizarCierre(c, s) {

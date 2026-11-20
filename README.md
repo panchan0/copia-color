@@ -26,7 +26,9 @@ npm run deploy                             # publica la app
 
 Wrangler te muestra la dirección de la app, algo como `https://copias-color.TU-SUBDOMINIO.workers.dev`. Ábrela, crea la cuenta del negocio y entra con esa misma cuenta en todos los equipos.
 
-Cuando ya tengas tu cuenta creada, conviene cerrar el registro para que nadie más pueda crear cuentas. Cambia `"ALLOW_SIGNUP": "true"` a `"false"` en `wrangler.jsonc` y vuelve a ejecutar `npm run deploy`.
+El registro de cuentas nuevas está cerrado (`"ALLOW_SIGNUP": "false"` en `wrangler.jsonc`). Para crear otra cuenta, cámbialo a `"true"`, publica, crea la cuenta y vuelve a cerrarlo.
+
+Las tablas y sus cambios se crean solos al arrancar (`src/schema.ts`); no hace falta ejecutar SQL a mano.
 
 ### Dominio propio (opcional)
 En el panel de Cloudflare entra a Workers & Pages → copias-color → Settings → Domains & Routes, y agrega tu dominio.

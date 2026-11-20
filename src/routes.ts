@@ -163,19 +163,43 @@ function range(url: URL, maxDays = 400) {
   return { from, to };
 }
 
+const SALE_COLS = `s.id, s.numero, s.fecha, s.hora, s.ts, s.client_id, s.client_name, c.phone AS client_phone, c.ruc AS client_ruc,
+                   s.metodo, s.subtotal_cents, s.itbms_cents, s.total_cents, s.paginas, s.anulada`;
+
+function shapeSales(rows: any[], items: any[]) {
+  const byId = new Map<string, any>();
+  const sales = rows.map(x => {
+    const o = { ...x, anulada: !!x.anulada, subtotal_cents: x.subtotal_cents ?? x.total_cents, itbms_cents: x.itbms_cents ?? 0, items: [] as any[] };
+    byId.set(x.id, o); return o;
+  });
+  for (const it of items) byId.get(it.sale_id)?.items.push({ tipo: it.tipo, tam: it.tam, nombre: it.nombre, cant: it.cant, precio_cents: it.precio_cents, sub_cents: it.sub_cents });
+  return sales;
+}
+
 export async function listSales(c: Ctx) {
   const { from, to } = range(c.url);
   const [s, i] = await c.env.DB.batch([
-    c.env.DB.prepare(`SELECT id, fecha, hora, ts, client_id, client_name, metodo, total_cents, paginas, anulada
-                      FROM sales WHERE account_id = ? AND fecha BETWEEN ? AND ? ORDER BY ts`).bind(c.accountId, from, to),
+    c.env.DB.prepare(`SELECT ${SALE_COLS} FROM sales s LEFT JOIN clients c ON c.id = s.client_id
+                      WHERE s.account_id = ? AND s.fecha BETWEEN ? AND ? ORDER BY s.ts`).bind(c.accountId, from, to),
     c.env.DB.prepare(`SELECT i.sale_id, i.tipo, i.tam, i.nombre, i.cant, i.precio_cents, i.sub_cents
                       FROM sale_items i JOIN sales s ON s.id = i.sale_id
                       WHERE s.account_id = ? AND s.fecha BETWEEN ? AND ? ORDER BY i.id`).bind(c.accountId, from, to),
   ]);
-  const byId = new Map<string, any>();
-  const sales = (s.results as any[]).map(x => { const o = { ...x, anulada: !!x.anulada, items: [] as any[] }; byId.set(x.id, o); return o; });
-  for (const it of i.results as any[]) byId.get(it.sale_id)?.items.push({ tipo: it.tipo, tam: it.tam, nombre: it.nombre, cant: it.cant, precio_cents: it.precio_cents, sub_cents: it.sub_cents });
-  return json({ sales });
+  return json({ sales: shapeSales(s.results as any[], i.results as any[]) });
+}
+
+async function getSale(env: Env, accountId: string, id: string) {
+  const [s, i] = await env.DB.batch([
+    env.DB.prepare(`SELECT ${SALE_COLS} FROM sales s LEFT JOIN clients c ON c.id = s.client_id WHERE s.account_id = ? AND s.id = ?`).bind(accountId, id),
+    env.DB.prepare('SELECT sale_id, tipo, tam, nombre, cant, precio_cents, sub_cents FROM sale_items WHERE sale_id = ? ORDER BY id').bind(id),
+  ]);
+  return shapeSales(s.results as any[], i.results as any[])[0] || null;
+}
+
+export async function saleById(c: Ctx) {
+  const sale = await getSale(c.env, c.accountId, c.params.id);
+  if (!sale) throw new HttpError(404, 'Venta no encontrada');
+  return json({ sale });
 }
 
 const TAMS = new Set(['carta', 'legal', 'otro']);
@@ -190,7 +214,7 @@ export async function createSale(c: Ctx) {
 
   // Reintento seguro: si ya existe, devolver lo guardado
   const prev = await c.env.DB.prepare('SELECT id FROM sales WHERE id = ? AND account_id = ?').bind(id, c.accountId).first();
-  if (prev) return json({ ok: true, id, duplicate: true });
+  if (prev) return json({ ok: true, duplicate: true, sale: await getSale(c.env, c.accountId, id) });
 
   const st = await getSettings(c.env, c.accountId);
   const items = b.items.map((it: any) => {
@@ -209,7 +233,12 @@ export async function createSale(c: Ctx) {
     }
     return { tipo: it.tipo, tam: it.tam, nombre, cant, precio, sub: precio * cant };
   });
-  const total = items.reduce((a: number, x: any) => a + x.sub, 0);
+  const bruto = items.reduce((a: number, x: any) => a + x.sub, 0);
+  const tasa = st.itbms.tasa / 100;
+  let subtotal = bruto, itbms = 0;
+  if (st.itbms.modo === 'aparte') itbms = Math.round(bruto * tasa);
+  else if (st.itbms.modo === 'incluido') { subtotal = Math.round(bruto / (1 + tasa)); itbms = bruto - subtotal; }
+  const total = subtotal + itbms;
   const paginas = items.reduce((a: number, x: any) => a + x.cant, 0);
 
   let clientId: string | null = null, clientName: string | null = null;
@@ -222,14 +251,15 @@ export async function createSale(c: Ctx) {
   const ts = Date.now();
   const { fecha, hora } = localParts(ts, st.tz);
   const stmts = [
-    c.env.DB.prepare(`INSERT INTO sales (id, account_id, fecha, hora, ts, client_id, client_name, metodo, total_cents, paginas)
-                      VALUES (?,?,?,?,?,?,?,?,?,?)`).bind(id, c.accountId, fecha, hora, ts, clientId, clientName, b.metodo, total, paginas),
+    c.env.DB.prepare(`INSERT INTO sales (id, account_id, numero, fecha, hora, ts, client_id, client_name, metodo, subtotal_cents, itbms_cents, total_cents, paginas)
+                      VALUES (?, ?, (SELECT COALESCE(MAX(numero), 0) + 1 FROM sales WHERE account_id = ?), ?,?,?,?,?,?,?,?,?,?)`)
+      .bind(id, c.accountId, c.accountId, fecha, hora, ts, clientId, clientName, b.metodo, subtotal, itbms, total, paginas),
     ...items.map((x: any) => c.env.DB.prepare('INSERT INTO sale_items (sale_id, tipo, tam, nombre, cant, precio_cents, sub_cents) VALUES (?,?,?,?,?,?,?)')
       .bind(id, x.tipo, x.tam, x.nombre, x.cant, x.precio, x.sub)),
     await bumpRev(c.env, c.accountId),
   ];
   await c.env.DB.batch(stmts);
-  return json({ ok: true, id, fecha, hora, total_cents: total }, 201);
+  return json({ ok: true, sale: await getSale(c.env, c.accountId, id) }, 201);
 }
 
 export async function voidSale(c: Ctx) {
@@ -245,15 +275,15 @@ export async function voidSale(c: Ctx) {
 export async function summary(c: Ctx) {
   const { from, to } = range(c.url, 800);
   const [m, it, cl] = await c.env.DB.batch([
-    c.env.DB.prepare(`SELECT fecha, metodo, COUNT(*) AS n, SUM(total_cents) AS t FROM sales
+    c.env.DB.prepare(`SELECT fecha, metodo, COUNT(*) AS n, SUM(total_cents) AS t, SUM(COALESCE(subtotal_cents, total_cents)) AS sb, SUM(itbms_cents) AS it FROM sales
                       WHERE account_id = ? AND fecha BETWEEN ? AND ? AND anulada = 0 GROUP BY fecha, metodo`).bind(c.accountId, from, to),
     c.env.DB.prepare(`SELECT s.fecha, i.tipo, i.tam, SUM(i.cant) AS c FROM sale_items i JOIN sales s ON s.id = i.sale_id
                       WHERE s.account_id = ? AND s.fecha BETWEEN ? AND ? AND s.anulada = 0 GROUP BY s.fecha, i.tipo, i.tam`).bind(c.accountId, from, to),
     c.env.DB.prepare(`SELECT fecha, inicio, fin, fiery, efectivo_cents, nota FROM closings WHERE account_id = ? AND fecha BETWEEN ? AND ?`).bind(c.accountId, from, to),
   ]);
   const days: Record<string, any> = {};
-  const day = (f: string) => days[f] ??= { n: 0, total: 0, met: { efectivo: { n: 0, t: 0 }, tarjeta: { n: 0, t: 0 }, yappy: { n: 0, t: 0 } }, pag: { imp: { carta: 0, legal: 0, otro: 0 }, cop: { carta: 0, legal: 0, otro: 0 } } };
-  for (const r of m.results as any[]) { const d = day(r.fecha); d.n += r.n; d.total += r.t; if (d.met[r.metodo]) d.met[r.metodo] = { n: r.n, t: r.t }; }
+  const day = (f: string) => days[f] ??= { n: 0, total: 0, sub: 0, itbms: 0, met: { efectivo: { n: 0, t: 0 }, tarjeta: { n: 0, t: 0 }, yappy: { n: 0, t: 0 } }, pag: { imp: { carta: 0, legal: 0, otro: 0 }, cop: { carta: 0, legal: 0, otro: 0 } } };
+  for (const r of m.results as any[]) { const d = day(r.fecha); d.n += r.n; d.total += r.t; d.sub += r.sb || 0; d.itbms += r.it || 0; if (d.met[r.metodo]) d.met[r.metodo] = { n: r.n, t: r.t }; }
   for (const r of it.results as any[]) { const d = day(r.fecha); d.pag[r.tipo][TAMS.has(r.tam) ? r.tam : 'otro'] += r.c; }
   const closings: Record<string, any> = {};
   for (const r of cl.results as any[]) closings[r.fecha] = r;

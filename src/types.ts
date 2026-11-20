@@ -19,6 +19,7 @@ export interface Settings {
   dias: number;        // días laborables por mes
   diasSemana: number;  // días laborables por semana
   tz: string;          // zona horaria IANA
+  itbms: { modo: 'incluido' | 'aparte' | 'no'; tasa: number }; // tasa en %
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -27,4 +28,5 @@ export const DEFAULT_SETTINGS: Settings = {
   dias: 26,
   diasSemana: 6,
   tz: 'America/Panama',
+  itbms: { modo: 'incluido', tasa: 7 },
 };

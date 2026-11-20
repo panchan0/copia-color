@@ -52,3 +52,19 @@ export function dialog({ title, fields = [], html = '', ok = 'Guardar', cancel =
     setTimeout(() => form.querySelector('input')?.focus(), 30);
   });
 }
+
+/** Diálogo con botones propios. buttons: [{label, value, cls}] → resuelve con value o null */
+export function choice({ title, html = '', buttons }) {
+  return new Promise(resolve => {
+    const ov = document.createElement('div');
+    ov.className = 'overlay';
+    ov.innerHTML = `<div class="dialog" role="dialog"><h3>${esc(title)}</h3>${html}<div class="acts wrap">${buttons.map((b, i) => `<button type="button" class="btn ${b.cls || ''}" data-i="${i}">${b.label}</button>`).join('')}</div></div>`;
+    const close = v => { ov.remove(); document.removeEventListener('keydown', key); resolve(v); };
+    const key = e => { if (e.key === 'Escape') close(null); };
+    document.addEventListener('keydown', key);
+    ov.addEventListener('mousedown', e => { if (e.target === ov) close(null); });
+    ov.querySelectorAll('[data-i]').forEach(b => b.onclick = () => { const x = buttons[Number(b.dataset.i)]; if (x.keep) x.onClick?.(); else close(x.value); });
+    document.body.appendChild(ov);
+    ov.querySelector('.btn:last-child')?.focus();
+  });
+}

@@ -22,6 +22,7 @@ add('DELETE', '/api/clients/:id', R.deleteClient);
 add('GET', '/api/sales', R.listSales);
 add('POST', '/api/sales', R.createSale);
 add('POST', '/api/sales/:id/void', R.voidSale);
+add('GET', '/api/sales/:id', R.saleById);
 add('GET', '/api/summary', R.summary);
 add('GET', '/api/closings/:fecha', R.getClosing);
 add('PUT', '/api/closings/:fecha', R.putClosing);

@@ -19,7 +19,7 @@
   ],
   "vars": {
     // "false" para impedir que se creen cuentas nuevas desde la página
-    "ALLOW_SIGNUP": "true",
+    "ALLOW_SIGNUP": "false",
     // Iteraciones PBKDF2 para las contraseñas
     "PBKDF2_ITERATIONS": "60000"
   },

@@ -21,6 +21,8 @@ export function normalize(d: any): Settings {
   const dias = Math.round(Number(d?.dias)); if (dias >= 1 && dias <= 31) s.dias = dias;
   const ds = Math.round(Number(d?.diasSemana)); if (ds >= 1 && ds <= 7) s.diasSemana = ds;
   if (typeof d?.tz === 'string' && validTz(d.tz)) s.tz = d.tz;
+  if (['incluido', 'aparte', 'no'].includes(d?.itbms?.modo)) s.itbms.modo = d.itbms.modo;
+  const tasa = Number(d?.itbms?.tasa); if (Number.isFinite(tasa) && tasa >= 0 && tasa <= 30) s.itbms.tasa = Math.round(tasa * 100) / 100;
   return s;
 }
 
@@ -35,6 +37,8 @@ export function validateSettings(d: any): Settings {
   if (!(Number(d?.dias) >= 1 && Number(d?.dias) <= 31)) throw new HttpError(400, 'Días laborables por mes: 1 a 31');
   if (!(Number(d?.diasSemana) >= 1 && Number(d?.diasSemana) <= 7)) throw new HttpError(400, 'Días laborables por semana: 1 a 7');
   if (typeof d?.tz !== 'string' || !validTz(d.tz)) throw new HttpError(400, 'Zona horaria inválida');
+  if (!['incluido', 'aparte', 'no'].includes(d?.itbms?.modo)) throw new HttpError(400, 'Revisa el ITBMS');
+  if (!(Number(d?.itbms?.tasa) >= 0 && Number(d?.itbms?.tasa) <= 30)) throw new HttpError(400, 'Tasa de ITBMS: 0 a 30');
   return normalize(d);
 }
 

@@ -43,6 +43,15 @@ export function mount(el) {
         <button class="btn" style="margin-top:12px" data-save>Guardar</button>
       </div>
       <div class="card">
+        <div class="label">ITBMS</div>
+        <div class="grid2">
+          <div class="field"><label for="aIt">Aplicación</label><select class="input" id="aIt">
+            <option value="incluido">Incluido en el precio</option><option value="aparte">Se suma al precio</option><option value="no">No aplica</option></select></div>
+          <div class="field"><label for="aTasa">Tasa (%)</label><input class="input" id="aTasa" type="number" step="0.01" min="0" max="30" inputmode="decimal"></div>
+        </div>
+        <button class="btn" style="margin-top:12px" data-save>Guardar</button>
+      </div>
+      <div class="card">
         <div class="label">Cuenta</div>
         <div data-email style="font-weight:600;margin-bottom:12px"></div>
         <div class="row" style="flex-wrap:wrap">
@@ -83,6 +92,7 @@ function fill() {
   $('#aMeta', root).value = s.meta / 100; $('#aDias', root).value = s.dias; $('#aSem', root).value = s.diasSemana;
   const zonas = ZONAS.includes(s.tz) ? ZONAS : [s.tz, ...ZONAS];
   $('#aTz', root).innerHTML = zonas.map(z => `<option value="${esc(z)}"${z === s.tz ? ' selected' : ''}>${esc(z.replace('America/', '').replace(/_/g, ' '))}</option>`).join('');
+  $('#aIt', root).value = s.itbms.modo; $('#aTasa', root).value = s.itbms.tasa;
   root.querySelector('[data-email]').textContent = S.account.email;
   paintInfo();
 }
@@ -97,6 +107,7 @@ async function guardarAjustes(e) {
   const body = {
     precios: { imp: { carta: toCents($('#pIC', root).value), legal: toCents($('#pIL', root).value) }, cop: { carta: toCents($('#pCC', root).value), legal: toCents($('#pCL', root).value) } },
     meta: toCents($('#aMeta', root).value), dias: Number($('#aDias', root).value), diasSemana: Number($('#aSem', root).value), tz: $('#aTz', root).value,
+    itbms: { modo: $('#aIt', root).value, tasa: Number($('#aTasa', root).value) },
   };
   const b = e.currentTarget; b.disabled = true;
   try { const r = await api('/api/settings', { method: 'PUT', body }); S.settings = r.settings; toast('Ajustes guardados'); syncNow(); fill(); }
