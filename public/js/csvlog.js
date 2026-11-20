@@ -207,6 +207,7 @@ export async function proponerOrdenes(parsed, map, catalogo) {
     }
     g.lineas = [...lineas.values()].map(l => ({ ...l, extra: [...l.detalles].join(' · ').slice(0, 80) }));
     g.titulos = g.jobs.map(j => j.titulo).filter(Boolean);
+    g.interno = g.titulos.some(t => /prueba|\btest\b|copias[\s_-]*rapidas/.test(norm(t)));
     g.origen = 'joblog:' + await sha(g.jobs.map(j => j.h).join('|'));
   }
   return grupos;

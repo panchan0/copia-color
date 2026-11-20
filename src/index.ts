@@ -44,7 +44,8 @@ export default {
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
     try {
       checkCsrf(req, url);
-      await ensureSchema(env);
+      // Si la actualización de tablas falla, se registra y la app sigue funcionando
+      try { await ensureSchema(env); } catch (e) { console.error('ensureSchema', e); }
       const p = url.pathname, m = req.method;
       if (p === '/api/auth/register' && m === 'POST') return await R.register(env, req, url);
       if (p === '/api/auth/login' && m === 'POST') return await R.login(env, req, url);
@@ -63,7 +64,8 @@ export default {
     } catch (e) {
       if (e instanceof HttpError) return json({ error: e.message }, e.status);
       console.error(e);
-      return json({ error: 'Error del servidor. Intenta de nuevo.' }, 500);
+      const detalle = e instanceof Error ? e.message.slice(0, 160) : String(e).slice(0, 160);
+      return json({ error: `Error del servidor: ${detalle}` }, 500);
     }
   },
 } satisfies ExportedHandler<Env>;

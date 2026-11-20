@@ -16,7 +16,7 @@ export async function api(path, { method = 'GET', body } = {}) {
   try { data = await r.json(); } catch { /* sin cuerpo */ }
   if (!r.ok) {
     if (r.status === 401 && !path.startsWith('/api/auth/')) onUnauthorized();
-    throw new ApiError(r.status, (data && data.error) || `Error ${r.status}`);
+    throw new ApiError(r.status, (data && data.error) || (r.status >= 500 ? `El servidor no respondió (código ${r.status}). Intenta de nuevo en un momento.` : `Error ${r.status}`));
   }
   return data;
 }

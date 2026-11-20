@@ -75,6 +75,8 @@ async function paintPrev() {
   const res = await procesar(parsed, map, maq.id, sinFechaCol ? (prev.fechaFija || today()) : null);
   prev.res = res;
   prev.grupos = sinFechaCol || map.color < 0 ? [] : await proponerOrdenes(parsed, map, S.settings.catalogo);
+  prev.vistos ||= new Set();
+  for (const g of prev.grupos) if (!prev.vistos.has(g.origen)) { prev.vistos.add(g.origen); if (g.interno) prev.excluir.add(g.origen); }
   const diasLista = Object.entries(prev.diasArchivo || {}).sort().reverse().filter(([f]) => f >= addDays(today(), -45)).slice(0, 40);
   const dias2 = Object.entries(res.porDia).sort();
   box.classList.remove('hide');
@@ -92,6 +94,12 @@ async function paintPrev() {
       ${sinFechaCol ? `<div class="field"><label>El archivo no trae fecha: asignar al día</label><input class="input" type="date" data-fija value="${prev.fechaFija || today()}"></div>` : ''}
     </div>
     ${!sinFechaCol && diasLista.length ? `<div class="label" style="margin-top:16px">Días a importar</div>
+      <div class="row wrap rango">
+        <div class="field"><label>Desde</label><input class="input" type="date" data-rd value="${prev.rd || diasLista.at(-1)?.[0] || ''}"></div>
+        <div class="field"><label>Hasta</label><input class="input" type="date" data-rh value="${prev.rh || diasLista[0]?.[0] || ''}"></div>
+        <button class="btn line" data-rango>Marcar rango</button>
+        <button class="btn ghost" data-ninguno>Ninguno</button>
+      </div>
       <div class="diasel">${diasLista.map(([f, d]) => `<label class="dchip${map.dias?.includes(f) ? ' on' : ''}"><input type="checkbox" data-dia="${f}"${map.dias?.includes(f) ? ' checked' : ''}><b>${esc(cap(fechaCorta(f)))}</b><span>${int(d.trabajos)} trab. · ${int(d.color)} color</span></label>`).join('')}</div>` : ''}
     <table class="dtable" style="margin-top:12px"><thead><tr><th>Día</th><th>Trabajos</th><th>Págs color</th><th>Págs B/N</th></tr></thead><tbody>
     ${dias2.map(([f, d]) => `<tr><td>${dmy(f)}</td><td class="num">${int(d.trabajos)}</td><td class="num"><b>${int(d.color)}</b></td><td class="num">${int(d.bn)}</td></tr>`).join('') || '<tr><td class="empty" colspan="4">No se encontraron trabajos con estas columnas. Ajusta las columnas de arriba.</td></tr>'}
@@ -107,6 +115,13 @@ async function paintPrev() {
     c.closest('.dchip').classList.toggle('on', c.checked);
     map.dias = [...box.querySelectorAll('[data-dia]:checked')].map(x => x.dataset.dia); paintPrev();
   }));
+  box.querySelector('[data-rango]')?.addEventListener('click', () => {
+    prev.rd = box.querySelector('[data-rd]').value; prev.rh = box.querySelector('[data-rh]').value;
+    if (!prev.rd || !prev.rh) return toast('Elige las dos fechas', true);
+    const [a, b] = prev.rd <= prev.rh ? [prev.rd, prev.rh] : [prev.rh, prev.rd];
+    map.dias = Object.keys(prev.diasArchivo).filter(f => f >= a && f <= b); paintPrev();
+  });
+  box.querySelector('[data-ninguno]')?.addEventListener('click', () => { map.dias = []; paintPrev(); });
   box.querySelectorAll('[data-gx]').forEach(c => c.addEventListener('change', () => { if (c.checked) prev.excluir.delete(c.dataset.gx); else prev.excluir.add(c.dataset.gx); paintPrev(); }));
   box.querySelectorAll('[data-pp]').forEach(i => i.addEventListener('change', () => { prev.precios[i.dataset.pp] = Math.round(Number(i.value) * 100) || 0; paintPrev(); }));
   box.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -162,7 +177,7 @@ function ordenesHTML() {
       const bruto = g.lineas.reduce((a, l) => a + Math.round(precioLinea(l) * l.cant), 0);
       return `<tr class="${prev.excluir.has(g.origen) ? 'off' : ''}"><td><input type="checkbox" data-gx="${g.origen}"${prev.excluir.has(g.origen) ? '' : ' checked'}></td>
         <td class="num">${dmy(g.fecha)}<br><span class="muted">${esc(g.hora)}</span></td>
-        <td>${g.titulos.map(t => `<div>${esc(t)}</div>`).join('')}</td>
+        <td>${g.titulos.map(t => `<div>${esc(t)}</div>`).join('')}${g.interno ? '<div class="tag t-pend">¿Prueba interna?</div>' : ''}</td>
         <td>${g.lineas.map(l => `<div>${int(l.cant)} × ${esc(nombreServ(l.serv, l.tam))} <span class="muted">${precioLinea(l) ? money(precioLinea(l)) : 'sin precio'}${l.extra ? ' · ' + esc(l.extra) : ''}</span></div>`).join('')}</td>
         <td class="num"><b>${money(calcItbms(bruto, S.settings.itbms).total)}</b></td></tr>`;
     }).join('')}</tbody></table></div>

@@ -55,11 +55,13 @@ export function clearCookie(url: URL): string {
 function readCookie(req: Request): string | null {
   const name = cookieName(new URL(req.url));
   const c = req.headers.get('cookie') || '';
+  const vals: Record<string, string> = {};
   for (const part of c.split(/;\s*/)) {
     const i = part.indexOf('=');
-    if (i > 0 && part.slice(0, i) === name) return part.slice(i + 1) || null;
+    if (i > 0) vals[part.slice(0, i)] = part.slice(i + 1);
   }
-  return null;
+  // También acepta la cookie anterior (cc_sid) para no cerrar sesiones abiertas
+  return vals[name] || vals['cc_sid'] || null;
 }
 
 /** Devuelve el id de la cuenta de la sesión, o lanza 401. Extiende la sesión si está por vencer. */
