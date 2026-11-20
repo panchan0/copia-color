@@ -1,3 +1,5 @@
+import type { Servicio } from './catalog';
+
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
@@ -13,20 +15,17 @@ export interface Ctx {
   params: Record<string, string>;
 }
 
+export interface Maquina { id: string; nombre: string; map?: Record<string, unknown> | null }
+
 export interface Settings {
-  precios: { imp: { carta: number; legal: number }; cop: { carta: number; legal: number } }; // centavos
+  ver: number;
+  catalogo: Servicio[];
   meta: number;        // centavos por mes
   dias: number;        // días laborables por mes
   diasSemana: number;  // días laborables por semana
-  tz: string;          // zona horaria IANA
-  itbms: { modo: 'incluido' | 'aparte' | 'no'; tasa: number }; // tasa en %
+  tz: string;
+  itbms: { modo: 'incluido' | 'aparte' | 'no'; tasa: number };
+  empresa: { telefono: string; correo: string; direccion: string; ruc: string };
+  operadores: string[];
+  maquinas: Maquina[];
 }
-
-export const DEFAULT_SETTINGS: Settings = {
-  precios: { imp: { carta: 90, legal: 110 }, cop: { carta: 60, legal: 90 } },
-  meta: 2000000,
-  dias: 26,
-  diasSemana: 6,
-  tz: 'America/Panama',
-  itbms: { modo: 'incluido', tasa: 7 },
-};

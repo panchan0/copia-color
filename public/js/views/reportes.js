@@ -3,7 +3,7 @@ import { S, today, on } from '../store.js';
 import { toast, ICON } from '../ui/dom.js';
 import { exportMenu } from '../ui/pickers.js';
 import { exportExcel, printReport } from '../export.js';
-import { esc, money, money0, int, addDays, addMonths, startOfWeek, startOfMonth, endOfMonth, parseD, MESES, MES3, DIAS3, cap, sumDays, emptyDay, pagTipo, pagTotal, analizarCierre, METODOS, fechaCorta, statsFromSales } from '../util.js';
+import { esc, money, money0, int, addDays, addMonths, startOfWeek, startOfMonth, endOfMonth, parseD, MESES, MES3, DIAS3, cap, sumDays, emptyDay, analizarCierre, METODOS, fechaCorta, dayFromSummary, prodList, fmtCant } from '../util.js';
 
 let root, modo = 'semana', ref = null, data = null, loading = false, reqId = 0, goDia = () => {};
 export const setGoDia = f => { goDia = f; };
@@ -61,7 +61,7 @@ export function mount(el) {
   <div class="lay-rep">
     <div class="card r-meta">
       <div class="row between" style="align-items:flex-end;flex-wrap:wrap;gap:6px 16px">
-        <div><div class="label" data-mlabel>Vendido</div><div class="big" data-total>$0</div></div>
+        <div><div class="label" data-mlabel>Cobrado</div><div class="big" data-total>$0</div></div>
         <div class="num" style="color:var(--muted);font-weight:600" data-meta></div>
       </div>
       <div class="bar"><i data-bar style="width:0"></i></div>
@@ -70,7 +70,7 @@ export function mount(el) {
     <div class="kpis" data-kpis></div>
     <div class="card r-chart"><div class="label">Ventas por <span data-unit>día</span></div><div class="chart" data-chart></div><div class="axis" data-axis></div></div>
     <div class="card r-met"><div class="label">Por método de pago</div><div data-met></div></div>
-    <div class="card r-pag"><div class="label">Páginas a color</div><div data-pag></div></div>
+    <div class="card r-pag"><div class="label">Productos y servicios</div><div data-pag style="overflow-x:auto"></div></div>
     <div class="card r-tab"><div class="label" data-tlabel>Detalle por día</div><div style="overflow-x:auto"><table class="dtable rtable" data-tab></table></div></div>
   </div>`;
   root.querySelector('[data-modo]').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || b.dataset.m === modo) return; modo = b.dataset.m; load(); });
@@ -111,9 +111,11 @@ function paintHead() {
   root.querySelector('[data-hoy]').classList.toggle('hide', from === cur);
 }
 
+const convDays = () => { const o = {}; for (const [k, v] of Object.entries(data?.days || {})) o[k] = dayFromSummary(v); return o; };
+
 function buckets() {
   const { from, to } = rango();
-  const days = data?.days || {};
+  const days = convDays();
   if (modo === 'anio') {
     const y = from.slice(0, 4);
     return MES3.map((m, i) => {
@@ -130,52 +132,51 @@ function buckets() {
 function paint() {
   const t = today(), { from, to } = rango();
   const actual = from <= t && t <= to;
-  const days = data?.days || {};
+  const days = convDays();
   const s = sumDays(Object.values(days));
   const { meta, lab, barMeta } = metaPeriodo();
   const diasV = Object.values(days).filter(d => d.n > 0).length;
-  const prom = diasV ? s.total / diasV : 0;
+  const prom = diasV ? s.cobrado / diasV : 0;
 
-  root.querySelector('[data-total]').textContent = loading ? '…' : money0(s.total);
+  root.querySelector('[data-total]').textContent = loading ? '…' : money0(s.cobrado);
   root.querySelector('[data-meta]').textContent = `Meta ${money0(meta)}`;
-  const pct = meta ? s.total / meta * 100 : 0;
+  const pct = meta ? s.cobrado / meta * 100 : 0;
   root.querySelector('[data-bar]').style.width = Math.min(100, pct) + '%';
-  root.querySelector('[data-pct]').textContent = `${pct.toFixed(1)}% de la meta${s.total >= meta && meta ? ' · Meta cumplida' : ''}`;
+  root.querySelector('[data-pct]').textContent = `${pct.toFixed(1)}% de la meta${s.cobrado >= meta && meta ? ' · Meta cumplida' : ''}`;
 
-  const falta = Math.max(0, meta - s.total), rest = Math.max(1, lab - diasV);
+  const falta = Math.max(0, meta - s.cobrado), rest = Math.max(1, lab - diasV);
   const k = [
     ['Promedio por día', money0(prom), `${diasV} día${diasV === 1 ? '' : 's'} con ventas`],
-    actual ? ['Proyección', money0(prom * lab), `a este ritmo, ${lab} días`] : ['Resultado', money0(s.total), s.total >= meta ? 'meta cumplida' : `faltaron ${money0(meta - s.total)}`],
-    ['Páginas a color', int(pagTotal(s)), `Imp. ${int(pagTipo(s, 'imp'))} · Copias ${int(pagTipo(s, 'cop'))}`],
+    actual ? ['Proyección', money0(prom * lab), `a este ritmo, ${lab} días`] : ['Resultado', money0(s.cobrado), s.cobrado >= meta ? 'meta cumplida' : `faltaron ${money0(meta - s.cobrado)}`],
+    ['Páginas a color', int(s.colorPags), `B/N ${int(s.bnPags)}`],
     actual ? ['Faltan por día', falta ? money0(falta / rest) : '$0', falta ? `${rest} días restantes` : 'meta alcanzada'] : ['Ventas', int(s.n), 'tickets cobrados'],
-    ['Ticket promedio', s.n ? money(s.total / s.n) : '$0.00', `${int(s.n)} ventas`],
+    ['Por cobrar', money0(s.pendT), `${int(s.pendN)} órdenes pendientes`],
   ];
   root.querySelector('[data-kpis]').innerHTML = k.map(([l, v, sub]) => `<div class="kpi"><div class="label" style="margin:0">${l}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`).join('');
 
   // gráfico
   const b = buckets();
-  const max = Math.max(barMeta, ...b.map(x => x.s.total), 1);
+  const max = Math.max(barMeta, ...b.map(x => x.s.cobrado), 1);
   root.querySelector('[data-unit]').textContent = modo === 'anio' ? 'mes' : 'día';
-  root.querySelector('[data-chart]').innerHTML = b.map(x => `<div class="b${x.s.total ? '' : ' zero'}${x.k === t || (modo === 'anio' && t.startsWith(x.k)) ? ' today' : ''}" data-k="${x.k}" title="${esc(x.label)}: ${money(x.s.total)}"><i style="height:${Math.max(1.5, x.s.total / max * 100)}%"></i></div>`).join('')
+  root.querySelector('[data-chart]').innerHTML = b.map(x => `<div class="b${x.s.cobrado ? '' : ' zero'}${x.k === t || (modo === 'anio' && t.startsWith(x.k)) ? ' today' : ''}" data-k="${x.k}" title="${esc(x.label)}: ${money(x.s.cobrado)}"><i style="height:${Math.max(1.5, x.s.cobrado / max * 100)}%"></i></div>`).join('')
     + (barMeta ? `<div class="goal" style="bottom:${barMeta / max * 100}%"><span>meta ${money0(barMeta)}</span></div>` : '');
   const step = b.length > 20 ? 5 : 1;
   root.querySelector('[data-axis]').innerHTML = b.map((x, i) => `<span>${modo === 'mes' ? ((i + 1) % step === 0 || i === 0 ? x.label : '') : x.label}</span>`).join('');
 
-  const tot = s.total || 1;
+  const tot = s.cobrado || 1;
   root.querySelector('[data-met]').innerHTML = Object.entries(METODOS).map(([k2, l]) =>
     `<div class="mrow m-${k2}"><span class="dot"></span><span>${l}</span><span class="n">${s.met[k2].n} · ${Math.round(s.met[k2].t / tot * 100)}%</span><span class="a">${money(s.met[k2].t)}</span></div>`).join('');
-  const row = (n, g) => `<tr><td>${n}</td><td class="num">${int(g.carta)}</td><td class="num">${int(g.legal)}</td><td class="num">${int(g.otro)}</td><td class="num"><b>${int(g.carta + g.legal + g.otro)}</b></td></tr>`;
-  root.querySelector('[data-pag]').innerHTML = `<table class="dtable"><thead><tr><th></th><th>Carta</th><th>Legal</th><th>Otro</th><th>Total</th></tr></thead><tbody>
-    ${row('Impresiones', s.pag.imp)}${row('Copias', s.pag.cop)}
-    <tr class="tot"><td>Total</td><td class="num">${int(s.pag.imp.carta + s.pag.cop.carta)}</td><td class="num">${int(s.pag.imp.legal + s.pag.cop.legal)}</td><td class="num">${int(s.pag.imp.otro + s.pag.cop.otro)}</td><td class="num">${int(pagTotal(s))}</td></tr></tbody></table>`;
-
+  const prods = prodList(s);
+  root.querySelector('[data-pag]').innerHTML = prods.length ? `<table class="dtable"><thead><tr><th>Producto o servicio</th><th>Cantidad</th><th>Monto</th></tr></thead><tbody>
+    ${prods.map(p => `<tr><td>${esc(p.label)}</td><td class="num">${esc(fmtCant(p.cant, p.unidad))}</td><td class="num">${money(p.monto)}</td></tr>`).join('')}
+    <tr class="tot"><td>Total (sin ITBMS)</td><td></td><td class="num">${money(prods.reduce((a2, p) => a2 + p.monto, 0))}</td></tr></tbody></table>` : '<div class="empty">Sin órdenes</div>';
   // tabla
   root.querySelector('[data-tlabel]').textContent = modo === 'anio' ? 'Detalle por mes' : 'Detalle por día';
-  const rows = b.filter(x => x.s.n || x.closing);
+  const rows = b.filter(x => x.s.n || x.s.cobrado || x.closing);
   const tab = root.querySelector('[data-tab]');
   if (loading) { tab.innerHTML = '<tbody><tr><td class="empty">Cargando…</td></tr></tbody>'; return; }
   if (!rows.length) { tab.innerHTML = '<tbody><tr><td class="empty">Sin ventas en este periodo</td></tr></tbody>'; return; }
-  tab.innerHTML = `<thead><tr><th>${modo === 'anio' ? 'Mes' : 'Día'}</th><th>Págs</th><th>Efectivo</th><th>Tarjeta</th><th>Yappy</th><th>Total</th>${modo === 'anio' ? '<th>Días</th>' : '<th>Dif. máquina</th>'}</tr></thead><tbody>
+  tab.innerHTML = `<thead><tr><th>${modo === 'anio' ? 'Mes' : 'Día'}</th><th>Órdenes</th><th>Color</th><th>Efectivo</th><th>Tarjeta</th><th>Yappy</th><th>Cobrado</th>${modo === 'anio' ? '<th>Días</th>' : '<th>Dif. máquina</th>'}</tr></thead><tbody>
   ${rows.slice().reverse().map(x => {
     let last;
     if (modo === 'anio') last = `<td class="num">${x.days}</td>`;
@@ -184,9 +185,9 @@ function paint() {
       last = `<td class="num">${a.maq != null ? `<b style="color:${a.dif === 0 ? 'var(--ok)' : a.dif > 0 ? 'var(--bad)' : 'var(--warn)'}">${a.dif > 0 ? '+' : ''}${int(a.dif)}</b>` : '—'}</td>`;
     }
     const name = modo === 'anio' ? cap(MESES[Number(x.k.slice(5, 7)) - 1]) : cap(fechaCorta(x.k));
-    return `<tr data-k="${x.k}"><td>${esc(name)}</td><td class="num">${int(pagTotal(x.s))}</td><td class="num">${money(x.s.met.efectivo.t)}</td><td class="num">${money(x.s.met.tarjeta.t)}</td><td class="num">${money(x.s.met.yappy.t)}</td><td class="num"><b>${money(x.s.total)}</b></td>${last}</tr>`;
+    return `<tr data-k="${x.k}"><td>${esc(name)}</td><td class="num">${int(x.s.n)}</td><td class="num">${int(x.s.colorPags)}</td><td class="num">${money(x.s.met.efectivo.t)}</td><td class="num">${money(x.s.met.tarjeta.t)}</td><td class="num">${money(x.s.met.yappy.t)}</td><td class="num"><b>${money(x.s.cobrado)}</b></td>${last}</tr>`;
   }).join('')}
-  <tr class="tot"><td>Total</td><td class="num">${int(pagTotal(s))}</td><td class="num">${money(s.met.efectivo.t)}</td><td class="num">${money(s.met.tarjeta.t)}</td><td class="num">${money(s.met.yappy.t)}</td><td class="num">${money(s.total)}</td><td></td></tr></tbody>`;
+  <tr class="tot"><td>Total</td><td class="num">${int(s.n)}</td><td class="num">${int(s.colorPags)}</td><td class="num">${money(s.met.efectivo.t)}</td><td class="num">${money(s.met.tarjeta.t)}</td><td class="num">${money(s.met.yappy.t)}</td><td class="num">${money(s.cobrado)}</td><td></td></tr></tbody>`;
 }
 
 async function exportar(kind) {
@@ -197,10 +198,10 @@ async function exportar(kind) {
     const [r, sm] = await Promise.all([api(`/api/sales?from=${from}&to=${to}`), data ? Promise.resolve(data) : api(`/api/summary?from=${from}&to=${to}`)]);
     const { meta } = metaPeriodo();
     const payload = {
-      titulo: modo === 'semana' ? 'Ventas de la semana' : modo === 'mes' ? 'Ventas del mes' : 'Ventas del año',
+      titulo: modo === 'semana' ? 'Informe semanal' : modo === 'mes' ? 'Informe mensual' : 'Informe anual',
       periodo: modo === 'semana' ? `Semana ${l.sub}` : modo === 'mes' ? (l.sub || l.main) : from.slice(0, 4),
       from, to, multiDay: true, porMes: modo === 'anio',
-      sales: r.sales, stats: statsFromSales(r.sales), closings: sm.closings || {}, days: sm.days || {}, meta,
+      sales: r.sales, stats: sumDays(Object.values(sm.days || {}).map(dayFromSummary)), closings: sm.closings || {}, days: Object.fromEntries(Object.entries(sm.days || {}).map(([k, v]) => [k, dayFromSummary(v)])), meta,
       archivo: `Ventas_${from}_a_${to}`,
     };
     if (kind === 'xls') await exportExcel(payload); else printReport(payload);

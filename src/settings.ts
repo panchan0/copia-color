@@ -1,37 +1,60 @@
-import { DEFAULT_SETTINGS, type Env, type Settings } from './types';
+import type { Env, Settings, Maquina } from './types';
 import { HttpError } from './http';
 import { validTz } from './time';
+import { mergeCatalogo } from './catalog';
+
+export const SETTINGS_VER = 2;
+
+const DEF_MAQUINAS: Maquina[] = [
+  { id: 'versant', nombre: 'Versant 180 (Fiery)', map: null },
+  { id: 'wc7845', nombre: 'WorkCentre 7845i', map: null },
+];
+
+export function defaults(): Settings {
+  return {
+    ver: SETTINGS_VER,
+    catalogo: mergeCatalogo(null),
+    meta: 2000000, dias: 26, diasSemana: 6, tz: 'America/Panama',
+    itbms: { modo: 'aparte', tasa: 7 },
+    empresa: { telefono: '6883-2728', correo: 'ventas@copiasrapidas.com', direccion: '', ruc: '' },
+    operadores: [],
+    maquinas: structuredClone(DEF_MAQUINAS),
+  };
+}
 
 export async function getSettings(env: Env, accountId: string): Promise<Settings> {
   const row = await env.DB.prepare('SELECT data FROM settings WHERE account_id = ?').bind(accountId).first<{ data: string }>();
-  if (!row) return structuredClone(DEFAULT_SETTINGS);
-  try { return normalize(JSON.parse(row.data)); } catch { return structuredClone(DEFAULT_SETTINGS); }
+  if (!row) return defaults();
+  try { return normalize(JSON.parse(row.data)); } catch { return defaults(); }
 }
 
-const cents = (v: unknown, def: number, max = 100_000_000) => {
-  const n = Math.round(Number(v));
-  return Number.isFinite(n) && n > 0 && n <= max ? n : def;
-};
+const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
 export function normalize(d: any): Settings {
-  const s = structuredClone(DEFAULT_SETTINGS);
-  const p = d?.precios || {};
-  for (const t of ['imp', 'cop'] as const) for (const k of ['carta', 'legal'] as const) s.precios[t][k] = cents(p?.[t]?.[k], s.precios[t][k], 100000);
-  s.meta = cents(d?.meta, s.meta);
+  const s = defaults();
+  const actual = d?.ver === SETTINGS_VER;
+  // Versiones anteriores: se adoptan los precios nuevos y el ITBMS aparte
+  if (actual) s.catalogo = mergeCatalogo(d?.catalogo);
+  const meta = Math.round(Number(d?.meta)); if (meta > 0 && meta <= 1e10) s.meta = meta;
   const dias = Math.round(Number(d?.dias)); if (dias >= 1 && dias <= 31) s.dias = dias;
   const ds = Math.round(Number(d?.diasSemana)); if (ds >= 1 && ds <= 7) s.diasSemana = ds;
   if (typeof d?.tz === 'string' && validTz(d.tz)) s.tz = d.tz;
-  if (['incluido', 'aparte', 'no'].includes(d?.itbms?.modo)) s.itbms.modo = d.itbms.modo;
+  if (actual && ['incluido', 'aparte', 'no'].includes(d?.itbms?.modo)) s.itbms.modo = d.itbms.modo;
   const tasa = Number(d?.itbms?.tasa); if (Number.isFinite(tasa) && tasa >= 0 && tasa <= 30) s.itbms.tasa = Math.round(tasa * 100) / 100;
+  if (d?.empresa && typeof d.empresa === 'object') {
+    for (const k of ['telefono', 'correo', 'direccion', 'ruc'] as const) if (typeof d.empresa[k] === 'string') s.empresa[k] = str(d.empresa[k], 120);
+  }
+  if (Array.isArray(d?.operadores)) s.operadores = [...new Set(d.operadores.map((x: unknown) => str(x, 60)).filter(Boolean))].slice(0, 50) as string[];
+  if (Array.isArray(d?.maquinas)) {
+    for (const m of s.maquinas) {
+      const sv = d.maquinas.find((x: any) => x?.id === m.id);
+      if (sv) { if (str(sv.nombre, 60)) m.nombre = str(sv.nombre, 60); if (sv.map && typeof sv.map === 'object' && JSON.stringify(sv.map).length < 4000) m.map = sv.map; }
+    }
+  }
   return s;
 }
 
 export function validateSettings(d: any): Settings {
-  const p = d?.precios;
-  for (const t of ['imp', 'cop']) for (const k of ['carta', 'legal']) {
-    const v = Number(p?.[t]?.[k]);
-    if (!Number.isInteger(v) || v <= 0 || v > 100000) throw new HttpError(400, 'Revisa los precios');
-  }
   const meta = Number(d?.meta);
   if (!Number.isInteger(meta) || meta <= 0) throw new HttpError(400, 'Revisa la meta mensual');
   if (!(Number(d?.dias) >= 1 && Number(d?.dias) <= 31)) throw new HttpError(400, 'Días laborables por mes: 1 a 31');
@@ -39,7 +62,8 @@ export function validateSettings(d: any): Settings {
   if (typeof d?.tz !== 'string' || !validTz(d.tz)) throw new HttpError(400, 'Zona horaria inválida');
   if (!['incluido', 'aparte', 'no'].includes(d?.itbms?.modo)) throw new HttpError(400, 'Revisa el ITBMS');
   if (!(Number(d?.itbms?.tasa) >= 0 && Number(d?.itbms?.tasa) <= 30)) throw new HttpError(400, 'Tasa de ITBMS: 0 a 30');
-  return normalize(d);
+  if (!Array.isArray(d?.catalogo)) throw new HttpError(400, 'Catálogo inválido');
+  return normalize({ ...d, ver: SETTINGS_VER });
 }
 
 export async function bumpRev(env: Env, accountId: string) {

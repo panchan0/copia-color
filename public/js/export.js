@@ -1,38 +1,37 @@
 import { S } from './store.js';
 import { toast } from './ui/dom.js';
-import { esc, dmy, money, int, cap, fechaCorta, MESES, METODOS, pagTipo, pagTotal, analizarCierre, sumDays, pad } from './util.js';
+import { esc, dmy, money, int, cap, fechaCorta, MESES, METODOS, analizarCierre, sumDays, pad, prodList, fmtCant, itemLabel } from './util.js';
 import { numOrden } from './workorder.js';
 
-/* Informe con el formato: Número · Emisión · Hora · Nombre/Razón social · Detalle · Subtotal · ITBMS · Total · Pago */
-
-const ab = it => `${it.tipo === 'imp' ? 'imp.' : 'cop.'} ${it.tam === 'otro' ? (it.nombre || 'otro').toLowerCase() : it.tam}`;
-const detalle = v => v.items.map(it => `${it.cant} ${ab(it)}`).join(', ');
+/* ---------- modelo común para Excel e impresión ---------- */
+const prodName = it => (it.tipo === 'imp' || it.tipo === 'cop') ? `${it.tipo === 'imp' ? 'Impresión' : 'Copia'} a color` : it.nombre;
+const tamName = it => (it.tipo === 'imp' || it.tipo === 'cop') ? ({ carta: 'Carta 8.5 x 11', legal: 'Legal 8.5 x 14' }[it.tam] || it.nombre) : (it.tam || '');
+const pagoTxt = v => v.anulada || v.estado === 'anulada' ? 'ANULADA' : v.estado === 'pendiente' ? 'PENDIENTE' : `${METODOS[v.metodo]}${v.pagada_fecha && v.pagada_fecha !== v.fecha ? ` (${dmy(v.pagada_fecha).slice(0, 5)})` : ''}`;
 
 function modelo(p) {
   const s = p.stats;
-  const filas = p.sales.slice().sort((a, b) => a.ts - b.ts).map(v => ({
-    numero: numOrden(v.numero), emision: dmy(v.fecha), hora: v.hora,
-    nombre: v.anulada ? `ANULADA · ${v.client_name || 'CONTADO'}` : (v.client_name || 'CONTADO'),
-    detalle: detalle(v), anulada: v.anulada,
-    sub: v.anulada ? null : (v.subtotal_cents ?? v.total_cents) / 100,
-    itbms: v.anulada ? null : (v.itbms_cents || 0) / 100,
-    total: v.anulada ? null : v.total_cents / 100,
-    pago: METODOS[v.metodo],
-  }));
-  const pagos = Object.keys(METODOS).map(k => [METODOS[k], s.met[k].n, s.met[k].t / 100]);
-  const pag = [
-    ['Impresiones', s.pag.imp.carta, s.pag.imp.legal, s.pag.imp.otro, pagTipo(s, 'imp')],
-    ['Copias', s.pag.cop.carta, s.pag.cop.legal, s.pag.cop.otro, pagTipo(s, 'cop')],
-    ['Total', s.pag.imp.carta + s.pag.cop.carta, s.pag.imp.legal + s.pag.cop.legal, s.pag.imp.otro + s.pag.cop.otro, pagTotal(s)],
-  ];
+  const ordenes = p.sales.slice().sort((a, b) => a.ts - b.ts).map(v => {
+    const anul = v.anulada || v.estado === 'anulada';
+    return {
+      numero: numOrden(v.numero ?? v.numero_anulado), fecha: `${dmy(v.fecha)} ${v.hora}`, cliente: v.client_name || 'CONTADO',
+      operador: v.operador || '', anul, pago: pagoTxt(v),
+      sub: anul ? null : v.subtotal_cents / 100, itbms: anul ? null : (v.itbms_cents || 0) / 100, total: anul ? null : v.total_cents / 100,
+      lineas: v.items.map(it => ({ prod: prodName(it) + (it.extra ? ` (${it.extra})` : ''), tam: tamName(it), cant: it.cant, cantTxt: fmtCant(it.cant, it.unidad), importe: anul ? null : it.sub_cents / 100 })),
+    };
+  });
+  const validas = ordenes.filter(o => !o.anul);
+  const tot = k => validas.reduce((a, o) => a + (o[k] || 0), 0);
+  const cobros = Object.keys(METODOS).map(k => [METODOS[k], s.met[k].n, s.met[k].t / 100]);
+  const prods = prodList(s).map(x => [x.label, fmtCant(x.cant, x.unidad), x.monto / 100]);
+  const maquinas = Object.entries(s.maq || {}).map(([k, x]) => [(S.settings.maquinas.find(m => m.id === k) || {}).nombre || k, x.color, x.bn]);
   let cierre = null;
-  if (!p.multiDay && p.closings[p.from]) {
+  if (!p.multiDay) {
     const c = p.closings[p.from], a = analizarCierre(c, s);
     cierre = [];
-    if (a.maq != null) cierre.push(['Contador máquina', `${int(c.inicio)} → ${int(c.fin)} = ${int(a.maq)} págs`], ['Páginas cobradas', int(pagTotal(s))], ['Diferencia', (a.dif > 0 ? '+' : '') + int(a.dif)]);
-    if (a.difFiery != null) cierre.push(['Fiery', `${int(c.fiery)} págs · dif. ${(a.difFiery > 0 ? '+' : '') + int(a.difFiery)}`]);
-    if (a.difEf != null) cierre.push(['Efectivo en caja', `${money(c.efectivo_cents)} · dif. ${a.difEf > 0 ? '+' : ''}${money(a.difEf)}`]);
-    if (c.nota) cierre.push(['Nota', c.nota]);
+    if (a.maq != null) cierre.push(['Contador de la máquina', `${int(c.inicio)} → ${int(c.fin)} = ${int(a.maq)} págs`], ['Diferencia con lo cobrado', (a.dif > 0 ? '+' : '') + int(a.dif)]);
+    if (a.logColor != null) cierre.push(['Registros de máquinas (color)', int(a.logColor)], ['Diferencia con lo cobrado', (a.difLog > 0 ? '+' : '') + int(a.difLog)]);
+    if (a.difEf != null) cierre.push(['Efectivo en caja', money(c.efectivo_cents)], ['Diferencia de efectivo', `${a.difEf > 0 ? '+' : ''}${money(a.difEf)}`]);
+    if (c?.nota) cierre.push(['Nota', c.nota]);
     if (!cierre.length) cierre = null;
   }
   let dias = null;
@@ -40,16 +39,27 @@ function modelo(p) {
     const days = p.days || {};
     if (p.porMes) {
       const y = p.from.slice(0, 4);
-      dias = MESES.map((m, i) => { const d = sumDays(Object.keys(days).filter(f => f.startsWith(`${y}-${pad(i + 1)}`)).map(f => days[f])); return d.n ? [cap(m), d.n, pagTotal(d), d.sub / 100, d.itbms / 100, d.total / 100] : null; }).filter(Boolean);
+      dias = MESES.map((m, i) => { const d = sumDays(Object.keys(days).filter(f => f.startsWith(`${y}-${pad(i + 1)}`)).map(f => days[f])); return d.n || d.cobrado ? [cap(m), d.n, d.colorPags, d.met.efectivo.t / 100, d.met.tarjeta.t / 100, d.met.yappy.t / 100, d.cobrado / 100] : null; }).filter(Boolean);
     } else {
-      dias = Object.keys(days).sort().filter(f => days[f].n).map(f => { const d = days[f]; return [cap(fechaCorta(f)), d.n, pagTotal(d), (d.sub ?? d.total) / 100, (d.itbms || 0) / 100, d.total / 100]; });
+      dias = Object.keys(days).sort().filter(f => days[f].n || days[f].cobrado).map(f => { const d = days[f]; return [cap(fechaCorta(f)), d.n, d.colorPags, d.met.efectivo.t / 100, d.met.tarjeta.t / 100, d.met.yappy.t / 100, d.cobrado / 100]; });
     }
   }
-  return { filas, pagos, pag, cierre, dias, sub: s.sub / 100, itbms: s.itbms / 100, total: s.total / 100, n: s.n, meta: p.meta / 100 };
+  const previos = (p.cobrosPrev || []).map(v => [numOrden(v.numero), `${dmy(v.fecha)}`, v.client_name || 'CONTADO', METODOS[v.metodo], v.total_cents / 100]);
+  return {
+    ordenes, cobros, prods, maquinas, cierre, dias, previos,
+    sub: tot('sub'), itbms: tot('itbms'), total: tot('total'),
+    totales: [
+      ['Órdenes', String(validas.length)], ['Subtotal', money(s.sub)], [tasa(), money(s.itbms)], ['Total de órdenes', money(s.total)],
+      ['Cobrado', money(s.cobrado)], ['Por cobrar (pendientes)', `${money(s.pendT)} · ${s.pendN} órdenes`],
+      ['Páginas a color', int(s.colorPags)], ['Páginas / hojas B/N', int(s.bnPags)],
+      ['Meta del periodo', money(p.meta)], ['Cumplimiento', p.meta ? `${(s.cobrado / p.meta * 100).toFixed(1)}%` : '—'],
+    ],
+  };
 }
 
 const ahora = () => { const d = new Date(); return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 const tasa = () => `ITBMS ${S.settings?.itbms?.tasa ?? 7}%`;
+const empresaTxt = () => { const e = S.settings?.empresa || {}; return [e.telefono && `Tel. ${e.telefono}`, e.correo].filter(Boolean).join(' · '); };
 
 /* ---------- Excel ---------- */
 let loadingLib = null;
@@ -63,21 +73,48 @@ function loadExcelJS() {
     document.head.appendChild(sc);
   });
 }
-const MONEY = '#,##0.00';
-const thin = c => ({ style: 'thin', color: { argb: c } });
+const MONEY = '"$"#,##0.00';
+const GRID = { style: 'thin', color: { argb: 'FF9A968E' } };
+const BORDER = { top: GRID, left: GRID, bottom: GRID, right: GRID };
+const HEADFILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFECE5' } };
 
-function nuevaHoja(wb, nombre, negocio, widths, titleRow) {
+function hoja(wb, nombre, negocio, widths, { landscape = false, titleRow = null } = {}) {
   const ws = wb.addWorksheet(nombre, {
     pageSetup: {
-      paperSize: 1, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, horizontalCentered: true,
+      paperSize: 1, orientation: landscape ? 'landscape' : 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, horizontalCentered: true,
       margins: { left: 0.35, right: 0.35, top: 0.45, bottom: 0.55, header: 0.2, footer: 0.25 },
       ...(titleRow ? { printTitlesRow: `${titleRow}:${titleRow}` } : {}),
     },
-    headerFooter: { oddFooter: `&L&8${negocio.replace(/&/g, '&&')}&R&8Página &P de &N` },
+    headerFooter: { oddFooter: `&L&9${negocio.replace(/&/g, '&&')}&R&9Página &P de &N` },
     views: [{ showGridLines: false, ...(titleRow ? { state: 'frozen', ySplit: titleRow } : {}) }],
   });
   ws.columns = widths.map(w => ({ width: w }));
   return ws;
+}
+function titulos(ws, ncols, negocio, linea2) {
+  for (let r = 1; r <= 3; r++) ws.mergeCells(r, 1, r, ncols);
+  ws.getCell('A1').value = negocio; ws.getCell('A1').font = { bold: true, size: 16 };
+  ws.getCell('A2').value = `${linea2}`; ws.getCell('A2').font = { bold: true, size: 12 };
+  ws.getCell('A3').value = `${empresaTxt()}${empresaTxt() ? ' · ' : ''}Generado ${ahora()}`; ws.getCell('A3').font = { size: 10, color: { argb: 'FF6B6B73' } };
+}
+function celda(c, { bold = false, size = 11, fmt, right = false, fill, wrap = true, grey = false } = {}) {
+  c.font = { bold, size, color: grey ? { argb: 'FF9A9A9A' } : undefined };
+  c.border = BORDER;
+  c.alignment = { vertical: 'top', horizontal: right ? 'right' : 'left', wrapText: wrap };
+  if (fmt) c.numFmt = fmt;
+  if (fill) c.fill = fill;
+}
+
+/** Tabla con bordes en todas las celdas. kinds: 't' texto, 'n' número, '$' dinero */
+function tabla(ws, r, c0, titulo, head, rows, kinds, { totalLast = false, size = 12 } = {}) {
+  ws.getCell(r, c0).value = titulo; ws.getCell(r, c0).font = { bold: true, size: size + 1 }; r++;
+  if (head) { head.forEach((h, j) => { const c = ws.getCell(r, c0 + j); c.value = h; celda(c, { bold: true, size, fill: HEADFILL, right: j > 0 && kinds[j] !== 't' }); }); r++; }
+  rows.forEach((row, i) => {
+    const last = totalLast && i === rows.length - 1;
+    row.forEach((v, j) => { const c = ws.getCell(r, c0 + j); c.value = v; celda(c, { bold: last, size, right: j > 0 && kinds[j] !== 't', fmt: kinds[j] === '$' ? MONEY : kinds[j] === 'n' ? '#,##0' : undefined, fill: last ? HEADFILL : undefined }); });
+    r++;
+  });
+  return r + 1;
 }
 
 export async function exportExcel(p) {
@@ -85,73 +122,58 @@ export async function exportExcel(p) {
   try { ExcelJS = await loadExcelJS(); } catch (e) { return toast(e.message, true); }
   const m = modelo(p), negocio = S.account.business || 'Mi negocio';
   const wb = new ExcelJS.Workbook(); wb.creator = 'Color'; wb.created = new Date();
-  const ws = nuevaHoja(wb, 'Informe', negocio, [9, 11, 6.5, 28, 22, 10.5, 10, 11, 10.5], 5);
-  const NC = 9;
-  ws.mergeCells(1, 1, 1, NC); ws.mergeCells(2, 1, 2, NC); ws.mergeCells(3, 1, 3, NC);
-  Object.assign(ws.getCell('A1'), { value: negocio }); ws.getCell('A1').font = { bold: true, size: 14 };
-  ws.getCell('A2').value = `${p.titulo} · ${p.periodo}`; ws.getCell('A2').font = { size: 11 };
-  ws.getCell('A3').value = `Generado ${ahora()}`; ws.getCell('A3').font = { size: 9, color: { argb: 'FF8A8A8A' } };
-  const head = ['Número', 'Emisión', 'Hora', 'Nombre/Razón social', 'Detalle', 'Subtotal', tasa(), 'Total', 'Pago'];
-  const hr = ws.getRow(5); hr.values = head; hr.height = 18;
-  hr.eachCell((c, i) => {
-    c.font = { bold: true, size: 10 }; c.border = { bottom: thin('FF16161A') };
-    c.alignment = { vertical: 'middle', horizontal: i >= 6 && i <= 8 ? 'right' : 'left', indent: i === 9 ? 1 : 0 };
-  });
-  let r = 6;
-  for (const f of m.filas) {
-    const row = ws.getRow(r);
-    row.values = [f.numero, f.emision, f.hora, f.nombre, f.detalle, f.sub, f.itbms, f.total, f.pago];
-    row.eachCell({ includeEmpty: true }, (c, i) => {
-      c.font = { size: 10, color: f.anulada ? { argb: 'FFB0B0B0' } : undefined, strike: f.anulada && i === 4 };
-      c.border = { bottom: thin('FFE6E3DC') };
-      c.alignment = { vertical: 'top', wrapText: i === 4 || i === 5, horizontal: i >= 6 && i <= 8 ? 'right' : 'left', indent: i === 9 ? 1 : 0 };
-    });
-    [6, 7, 8].forEach(i => { row.getCell(i).numFmt = MONEY; });
-    r++;
-  }
-  if (!m.filas.length) { ws.getCell(r, 1).value = 'Sin ventas en este periodo'; r++; }
-  const last = r - 1;
-  const tr = ws.getRow(r);
-  tr.getCell(5).value = 'Total ='; tr.getCell(5).alignment = { horizontal: 'right' };
-  if (m.filas.length) {
-    tr.getCell(6).value = { formula: `SUM(F6:F${last})`, result: m.sub };
-    tr.getCell(7).value = { formula: `SUM(G6:G${last})`, result: m.itbms };
-    tr.getCell(8).value = { formula: `SUM(H6:H${last})`, result: m.total };
-  }
-  tr.eachCell({ includeEmpty: true }, (c, i) => { c.font = { bold: true, size: 10 }; if (i >= 6 && i <= 8) { c.border = { top: thin('FF16161A') }; c.numFmt = MONEY; c.alignment = { horizontal: 'right' }; } });
-  r += 2;
+  const linea2 = `${p.titulo} · ${p.periodo}`;
 
-  // Resumen debajo, en columnas D–H para no ensanchar la hoja
-  const bloque = (titulo, header, rows, fmts) => {
-    ws.getCell(r, 4).value = titulo; ws.getCell(r, 4).font = { bold: true, size: 10 }; r++;
-    if (header) { header.forEach((h, j) => { const c = ws.getCell(r, 4 + j); c.value = h; c.font = { bold: true, size: 9, color: { argb: 'FF6B6B73' } }; c.alignment = { horizontal: j ? 'right' : 'left' }; c.border = { bottom: thin('FFBDB8AD') }; }); r++; }
-    rows.forEach((row, ri) => {
-      row.forEach((v, j) => {
-        const c = ws.getCell(r, 4 + j); c.value = v; c.font = { size: 10, bold: ri === rows.length - 1 && rows.length > 1 && /^Total/.test(row[0]) };
-        if (j) c.alignment = { horizontal: 'right' };
-        if (fmts[j] === '$') c.numFmt = MONEY; else if (fmts[j] === 'n') c.numFmt = '#,##0';
-      });
+  /* Resumen: letra grande, vertical */
+  const rs = hoja(wb, 'Resumen', negocio, [58, 22, 24, 20]);
+  titulos(rs, 4, negocio, linea2);
+  let r = 5;
+  r = tabla(rs, r, 1, 'Totales', null, m.totales, ['t', 't']);
+  r = tabla(rs, r, 1, 'Cobros por método de pago', ['Método', 'Cobros', 'Monto'], [...m.cobros, ['Total cobrado', m.cobros.reduce((a, x) => a + x[1], 0), m.cobros.reduce((a, x) => a + x[2], 0)]], ['t', 'n', '$'], { totalLast: true });
+  if (m.prods.length) r = tabla(rs, r, 1, 'Productos y servicios', ['Producto o servicio · tamaño', 'Cantidad', 'Monto'], [...m.prods, ['Total (sin ITBMS)', '', m.prods.reduce((a, x) => a + x[2], 0)]], ['t', 't', '$'], { totalLast: true });
+  if (m.maquinas.length) r = tabla(rs, r, 1, 'Registros de máquinas', ['Máquina', 'Págs color', 'Págs B/N'], m.maquinas, ['t', 'n', 'n']);
+  if (m.cierre) r = tabla(rs, r, 1, 'Cierre del día', null, m.cierre, ['t', 't']);
+  if (m.previos.length) r = tabla(rs, r, 1, 'Cobros de órdenes de días anteriores', ['N.º · cliente', 'Creada', 'Pago', 'Monto'], m.previos.map(x => [`${x[0]} · ${x[2]}`, x[1], x[3], x[4]]), ['t', 't', 't', '$']);
+
+  /* Órdenes: una fila por producto, datos de la orden combinados */
+  const head = ['N.º', 'Fecha y hora', 'Cliente', 'Producto o servicio', 'Tamaño', 'Cant.', 'Importe', tasa(), 'Total orden', 'Pago'];
+  const ws = hoja(wb, 'Órdenes', negocio, [9, 18, 26, 36, 22, 9, 12, 11, 13, 16], { landscape: true, titleRow: 5 });
+  titulos(ws, head.length, negocio, linea2);
+  head.forEach((h, j) => celda(ws.getCell(5, j + 1), { bold: true, fill: HEADFILL, right: j >= 5 && j <= 8 }));
+  ws.getRow(5).values = head;
+  head.forEach((h, j) => celda(ws.getCell(5, j + 1), { bold: true, fill: HEADFILL, right: j >= 5 && j <= 8 }));
+  r = 6;
+  const first = r;
+  for (const o of m.ordenes) {
+    const r0 = r;
+    o.lineas.forEach(l => {
+      const row = ws.getRow(r);
+      row.getCell(4).value = l.prod; row.getCell(5).value = l.tam; row.getCell(6).value = l.cant; row.getCell(7).value = l.importe;
       r++;
     });
-    r++;
-  };
-  bloque('Por tipo de pago', ['Método', 'Ventas', '', '', 'Total'], [...m.pagos.map(x => [x[0], x[1], null, null, x[2]]), ['Total', m.n, null, null, m.total]], ['t', 'n', '', '', '$']);
-  bloque('Páginas a color', ['', 'Carta', 'Legal', 'Otro', 'Total'], m.pag, ['t', 'n', 'n', 'n', 'n']);
-  if (m.cierre) bloque('Cierre del día', null, m.cierre.map(([a, b]) => [a, b]), ['t', 't']);
-  bloque('Meta', null, [['Meta del periodo', m.meta], ['Vendido', m.total], ['Cumplimiento', m.meta ? `${(m.total / m.meta * 100).toFixed(1)}%` : '—']], ['t', '$']);
+    const r1 = r - 1;
+    const vals = { 1: o.numero, 2: o.fecha, 3: o.cliente, 8: o.itbms, 9: o.total, 10: o.pago };
+    for (const [col, v] of Object.entries(vals)) { ws.getCell(r0, Number(col)).value = v; if (r1 > r0) ws.mergeCells(r0, Number(col), r1, Number(col)); }
+    for (let rr = r0; rr <= r1; rr++) for (let j = 1; j <= 10; j++) {
+      celda(ws.getCell(rr, j), { size: 11, right: j >= 6 && j <= 9, fmt: j === 6 ? '#,##0.##' : (j >= 7 && j <= 9 ? MONEY : undefined), grey: o.anul, bold: j === 9 });
+    }
+  }
+  if (!m.ordenes.length) { ws.getCell(r, 1).value = 'Sin órdenes en este periodo'; r++; }
+  const last = r - 1;
+  ws.getCell(r, 4).value = 'TOTAL';
+  if (m.ordenes.length) {
+    ws.getCell(r, 7).value = { formula: `SUM(G${first}:G${last})`, result: m.sub };
+    ws.getCell(r, 8).value = { formula: `SUM(H${first}:H${last})`, result: m.itbms };
+    ws.getCell(r, 9).value = { formula: `SUM(I${first}:I${last})`, result: m.total };
+  }
+  for (let j = 1; j <= 10; j++) celda(ws.getCell(r, j), { bold: true, size: 12, fill: HEADFILL, right: j >= 6 && j <= 9, fmt: j >= 7 && j <= 9 ? MONEY : undefined });
 
   if (m.dias && m.dias.length) {
-    const wd = nuevaHoja(wb, p.porMes ? 'Por mes' : 'Por día', negocio, [16, 9, 10, 12, 11, 12], 4);
-    wd.mergeCells(1, 1, 1, 6); wd.mergeCells(2, 1, 2, 6);
-    wd.getCell('A1').value = negocio; wd.getCell('A1').font = { bold: true, size: 14 };
-    wd.getCell('A2').value = `${p.titulo} · ${p.periodo}`;
-    const h = wd.getRow(4); h.values = [p.porMes ? 'Mes' : 'Día', 'Ventas', 'Páginas', 'Subtotal', tasa(), 'Total'];
-    h.eachCell((c, i) => { c.font = { bold: true, size: 10 }; c.border = { bottom: thin('FF16161A') }; if (i > 1) c.alignment = { horizontal: 'right' }; });
-    let rr = 5;
-    for (const d of m.dias) { const row = wd.getRow(rr++); row.values = d; [4, 5, 6].forEach(i => { row.getCell(i).numFmt = MONEY; }); row.eachCell(c => { c.font = { size: 10 }; c.border = { bottom: thin('FFE6E3DC') }; }); }
-    const t = wd.getRow(rr); t.getCell(1).value = 'Total';
-    [2, 3, 4, 5, 6].forEach(i => { const L = String.fromCharCode(64 + i); t.getCell(i).value = { formula: `SUM(${L}5:${L}${rr - 1})`, result: m.dias.reduce((a, b) => a + b[i - 1], 0) }; if (i > 3) t.getCell(i).numFmt = MONEY; });
-    t.eachCell(c => { c.font = { bold: true, size: 10 }; c.border = { top: thin('FF16161A') }; });
+    const wd = hoja(wb, p.porMes ? 'Por mes' : 'Por día', negocio, [18, 11, 12, 14, 14, 14, 15], { titleRow: 5 });
+    titulos(wd, 7, negocio, linea2);
+    const sum = k => m.dias.reduce((a, b) => a + b[k], 0);
+    tabla(wd, 4, 1, p.porMes ? 'Detalle por mes' : 'Detalle por día', [p.porMes ? 'Mes' : 'Día', 'Órdenes', 'Págs color', 'Efectivo', 'Tarjeta', 'Yappy', 'Cobrado'],
+      [...m.dias, ['Total', sum(1), sum(2), sum(3), sum(4), sum(5), sum(6)]], ['t', 'n', 'n', '$', '$', '$', '$'], { totalLast: true });
   }
 
   const buf = await wb.xlsx.writeBuffer();
@@ -170,18 +192,36 @@ function descargar(blob, nombre) {
 /* ---------- Impresión ---------- */
 export function printReport(p) {
   const m = modelo(p), negocio = S.account.business || '';
-  const f$ = v => v == null ? '' : money(Math.round(v * 100)).replace('$', '');
-  let h = `<div class="rep"><h1>${esc(negocio)}</h1><div class="meta">${esc(p.titulo)} · ${esc(p.periodo)} · Generado ${ahora()}</div>
-  <table class="inf"><thead><tr><th>Número</th><th>Emisión</th><th>Hora</th><th>Nombre/Razón social</th><th>Detalle</th><th class="n">Subtotal</th><th class="n">${tasa()}</th><th class="n">Total</th><th>Pago</th></tr></thead><tbody>
-  ${m.filas.map(f => `<tr class="${f.anulada ? 'an' : ''}"><td>${f.numero}</td><td>${f.emision}</td><td>${esc(f.hora)}</td><td>${esc(f.nombre)}</td><td class="det">${esc(f.detalle)}</td><td class="n">${f$(f.sub)}</td><td class="n">${f$(f.itbms)}</td><td class="n">${f$(f.total)}</td><td>${esc(f.pago)}</td></tr>`).join('') || '<tr><td colspan="9">Sin ventas</td></tr>'}
-  </tbody><tfoot><tr><td colspan="5" class="n">Total =</td><td class="n">${f$(m.sub)}</td><td class="n">${f$(m.itbms)}</td><td class="n">${f$(m.total)}</td><td></td></tr></tfoot></table>
-  <div class="resgrid">
-    <div><h2>Por tipo de pago</h2><table><tbody>${m.pagos.map(x => `<tr><td>${x[0]}</td><td class="n">${x[1]}</td><td class="n">${f$(x[2])}</td></tr>`).join('')}<tr class="tot"><td>Total</td><td class="n">${m.n}</td><td class="n">${f$(m.total)}</td></tr></tbody></table></div>
-    <div><h2>Páginas a color</h2><table><thead><tr><th></th><th class="n">Carta</th><th class="n">Legal</th><th class="n">Otro</th><th class="n">Total</th></tr></thead><tbody>${m.pag.map((x, i) => `<tr class="${i === 2 ? 'tot' : ''}">${x.map((v, j) => `<td class="${j ? 'n' : ''}">${j ? int(v) : v}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
-    ${m.cierre ? `<div><h2>Cierre del día</h2><table><tbody>${m.cierre.map(([a, b]) => `<tr><td>${esc(a)}</td><td class="n">${esc(b)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+  const f$ = v => v == null ? '' : money(Math.round(v * 100));
+  const tbl = (titulo, head, rows, kinds, totalLast = false) => `<div class="blk"><h2>${esc(titulo)}</h2><table class="grid">
+    ${head ? `<thead><tr>${head.map((h, i) => `<th class="${i && kinds[i] !== 't' ? 'n' : ''}">${esc(h)}</th>`).join('')}</tr></thead>` : ''}
+    <tbody>${rows.map((row, ri) => `<tr class="${totalLast && ri === rows.length - 1 ? 'tot' : ''}">${row.map((v, i) => `<td class="${i && kinds[i] !== 't' ? 'n' : ''}">${kinds[i] === '$' ? f$(v) : kinds[i] === 'n' ? int(v) : esc(v ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  let h = `<div class="rep">
+  <div class="rep-h"><div><h1>${esc(negocio)}</h1><div class="meta">${esc(empresaTxt())}</div></div><div class="rep-t"><b>${esc(p.titulo)}</b><div>${esc(p.periodo)}</div><div class="meta">Generado ${ahora()}</div></div></div>
+  <div class="sumgrid">
+    ${tbl('Totales', null, m.totales, ['t', 't'])}
+    ${tbl('Cobros por método de pago', ['Método', 'Cobros', 'Monto'], [...m.cobros, ['Total cobrado', m.cobros.reduce((a, x) => a + x[1], 0), m.cobros.reduce((a, x) => a + x[2], 0)]], ['t', 'n', '$'], true)}
   </div>
-  ${m.dias && m.dias.length ? `<h2>${p.porMes ? 'Por mes' : 'Por día'}</h2><table><thead><tr><th>${p.porMes ? 'Mes' : 'Día'}</th><th class="n">Ventas</th><th class="n">Páginas</th><th class="n">Subtotal</th><th class="n">${tasa()}</th><th class="n">Total</th></tr></thead><tbody>${m.dias.map(d => `<tr><td>${esc(d[0])}</td><td class="n">${d[1]}</td><td class="n">${int(d[2])}</td><td class="n">${f$(d[3])}</td><td class="n">${f$(d[4])}</td><td class="n">${f$(d[5])}</td></tr>`).join('')}</tbody></table>` : ''}
+  ${m.prods.length ? tbl('Productos y servicios', ['Producto o servicio · tamaño', 'Cantidad', 'Monto'], [...m.prods, ['Total (sin ITBMS)', '', m.prods.reduce((a, x) => a + x[2], 0)]], ['t', 't', '$'], true) : ''}
+  <div class="sumgrid">
+    ${m.maquinas.length ? tbl('Registros de máquinas', ['Máquina', 'Págs color', 'Págs B/N'], m.maquinas, ['t', 'n', 'n']) : ''}
+    ${m.cierre ? tbl('Cierre del día', null, m.cierre, ['t', 't']) : ''}
+  </div>
+  ${m.previos.length ? tbl('Cobros de órdenes de días anteriores', ['N.º', 'Creada', 'Cliente', 'Pago', 'Monto'], m.previos, ['t', 't', 't', 't', '$']) : ''}
+  ${m.dias && m.dias.length ? tbl(p.porMes ? 'Detalle por mes' : 'Detalle por día', [p.porMes ? 'Mes' : 'Día', 'Órdenes', 'Págs color', 'Efectivo', 'Tarjeta', 'Yappy', 'Cobrado'],
+    [...m.dias, ['Total', ...[1, 2, 3, 4, 5, 6].map(k => m.dias.reduce((a, b) => a + b[k], 0))]], ['t', 'n', 'n', '$', '$', '$', '$'], true) : ''}
+  </div>
+  <div class="rep lst">
+    <h2>Órdenes · ${esc(p.periodo)}</h2>
+    <table class="grid ord"><thead><tr><th>N.º</th><th>Fecha y hora</th><th>Cliente</th><th>Producto o servicio</th><th>Tamaño</th><th class="n">Cant.</th><th class="n">Importe</th><th class="n">${tasa()}</th><th class="n">Total</th><th>Pago</th></tr></thead>
+    <tbody>${m.ordenes.map(o => o.lineas.map((l, i) => `<tr class="${o.anul ? 'an' : ''}">
+      ${i === 0 ? `<td rowspan="${o.lineas.length}">${o.numero}</td><td rowspan="${o.lineas.length}">${esc(o.fecha)}</td><td rowspan="${o.lineas.length}">${esc(o.cliente)}</td>` : ''}
+      <td>${esc(l.prod)}</td><td>${esc(l.tam)}</td><td class="n">${esc(l.cantTxt)}</td><td class="n">${f$(l.importe)}</td>
+      ${i === 0 ? `<td class="n" rowspan="${o.lineas.length}">${f$(o.itbms)}</td><td class="n" rowspan="${o.lineas.length}"><b>${f$(o.total)}</b></td><td rowspan="${o.lineas.length}">${esc(o.pago)}</td>` : ''}
+    </tr>`).join('')).join('') || '<tr><td colspan="10">Sin órdenes</td></tr>'}</tbody>
+    <tfoot><tr class="tot"><td colspan="6" class="n">TOTAL</td><td class="n">${f$(m.sub)}</td><td class="n">${f$(m.itbms)}</td><td class="n">${f$(m.total)}</td><td></td></tr></tfoot></table>
   </div>`;
   document.getElementById('print').innerHTML = h;
   setTimeout(() => window.print(), 50);
 }
+export { itemLabel };

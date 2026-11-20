@@ -36,6 +36,9 @@ En el panel de Cloudflare entra a Workers & Pages → copias-color → Settings 
 ## Actualizar la app
 Después de cambiar el código, ejecuta `npm run deploy`. Si agregas una migración nueva en `migrations/`, ejecuta antes `npm run db:migrate:remote`.
 
+## Registros de las máquinas
+En la sección **Máquinas** se sube el CSV del Job Log de Fiery (Versant 180) o el informe de la WorkCentre 7845i. La app reconoce las columnas, guarda la configuración por máquina e ignora los trabajos que ya estaban importados.
+
 ## Respaldos
 - **Automático:** D1 tiene *Time Travel*, que permite restaurar la base a cualquier minuto de los últimos 7 días en el plan gratis, o de los últimos 30 días en el plan Workers Paid de $5 al mes.
   `npx wrangler d1 time-travel restore copias-color-db --timestamp=2026-11-19T20:00:00Z`

@@ -5,6 +5,8 @@ export const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'ju
 export const MES3 = MESES.map(m => m.slice(0, 3));
 
 export const METODOS = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', yappy: 'Yappy' };
+export const ESTADOS = { pendiente: 'Pendiente', pagada: 'Pagada', anulada: 'Anulada' };
+export const CATS = { color: 'Color', bn: 'Blanco y negro', planos: 'Planos', enc: 'Encuadernación', otros: 'Otros' };
 export const TIPOS = { imp: 'Impresión', cop: 'Copia' };
 export const TAMS = { carta: 'Carta', legal: 'Legal', otro: 'Otro' };
 
@@ -39,35 +41,66 @@ export const centsToInput = c => (c == null ? '' : (c / 100).toFixed(2));
 
 export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16); }));
-export const itemLabel = it => `${TIPOS[it.tipo] || ''} ${it.tam === 'otro' ? (it.nombre || 'otro') : (TAMS[it.tam] || '').toLowerCase()}`.trim();
-export const itemLabelLower = it => `${(TIPOS[it.tipo] || '').toLowerCase()} ${(it.tam === 'otro' ? (it.nombre || 'otro') : (TAMS[it.tam] || '')).toLowerCase()}`.trim();
+/** Nombre completo de una línea: "Impresión a color · Carta 8.5 x 11" */
+export const itemLabel = it => {
+  if (it.tipo === 'imp' || it.tipo === 'cop') return `${it.tipo === 'imp' ? 'Impresión' : 'Copia'} a color · ${it.tam === 'otro' ? it.nombre : (TAMS[it.tam] || it.tam)}`;
+  return it.tam && it.tam !== '—' ? `${it.nombre} · ${it.tam}` : it.nombre;
+};
+export const itemLabelLower = itemLabel;
+export const fmtCant = (n, unidad) => unidad === 'pie lineal' ? `${Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 })} pie${n === 1 ? '' : 's'} lin.` : int(n);
 
-/** Estadísticas a partir de una lista de ventas completas */
-export function statsFromSales(sales) {
+
+/** Estadísticas de una lista de órdenes.
+ *  Órdenes creadas: n, total, productos, páginas. Cobros: solo los de `cobrosDe` (fecha de pago en el rango). */
+export function statsFromSales(sales, enRango = null) {
   const s = emptyDay();
   for (const v of sales) {
     if (v.anulada) continue;
-    s.n++; s.total += v.total_cents; s.sub += v.subtotal_cents ?? v.total_cents; s.itbms += v.itbms_cents || 0;
-    if (s.met[v.metodo]) { s.met[v.metodo].n++; s.met[v.metodo].t += v.total_cents; }
-    for (const it of v.items || []) { const g = s.pag[it.tipo]; if (g) g[it.tam in g ? it.tam : 'otro'] += it.cant; }
+    const creada = !enRango || enRango(v.fecha);
+    if (creada) {
+      s.n++; s.total += v.total_cents; s.sub += v.subtotal_cents ?? v.total_cents; s.itbms += v.itbms_cents || 0;
+      if (v.estado === 'pendiente') { s.pendN++; s.pendT += v.total_cents; }
+      for (const it of v.items || []) addItem(s, it, it.cant, it.sub_cents);
+    }
+    const pagada = v.estado === 'pagada' && (!enRango || enRango(v.pagada_fecha));
+    if (pagada && s.met[v.metodo]) { s.met[v.metodo].n++; s.met[v.metodo].t += v.total_cents; s.cobrado += v.total_cents; }
   }
   return s;
 }
 export function emptyDay() {
-  return { n: 0, total: 0, sub: 0, itbms: 0, met: { efectivo: { n: 0, t: 0 }, tarjeta: { n: 0, t: 0 }, yappy: { n: 0, t: 0 } }, pag: { imp: { carta: 0, legal: 0, otro: 0 }, cop: { carta: 0, legal: 0, otro: 0 } } };
+  return { n: 0, total: 0, sub: 0, itbms: 0, cobrado: 0, pendN: 0, pendT: 0, colorPags: 0, bnPags: 0,
+    met: { efectivo: { n: 0, t: 0 }, tarjeta: { n: 0, t: 0 }, yappy: { n: 0, t: 0 } }, prods: {}, maq: {} };
+}
+const UNIT_PAG = new Set(['pág', 'hoja', undefined, null]);
+function addItem(s, it, cant, monto) {
+  const label = itemLabel(it);
+  const p = s.prods[label] ||= { label, cat: it.cat || 'color', color: it.color ?? true, unidad: it.unidad || 'pág', cant: 0, monto: 0 };
+  p.cant += cant; p.monto += monto;
+  const esColor = it.color ?? true;
+  if (UNIT_PAG.has(it.unidad)) { if (esColor) s.colorPags += cant; else if (it.cat !== 'enc' && it.cat !== 'otros') s.bnPags += cant; }
+}
+/** Convierte un día del resumen del servidor al mismo formato */
+export function dayFromSummary(d) {
+  const s = emptyDay();
+  if (!d) return s;
+  Object.assign(s, { n: d.n, total: d.total, sub: d.sub, itbms: d.itbms, cobrado: d.cobrado, pendN: d.pendN, pendT: d.pendT, maq: d.maq || {} });
+  for (const k in s.met) s.met[k] = { ...d.met[k] };
+  for (const it of d.items || []) addItem(s, it, it.cant, it.monto);
+  return s;
 }
 export function sumDays(list) {
   const s = emptyDay();
   for (const d of list) {
     if (!d) continue;
-    s.n += d.n; s.total += d.total; s.sub += d.sub ?? d.total; s.itbms += d.itbms || 0;
+    for (const k of ['n', 'total', 'sub', 'itbms', 'cobrado', 'pendN', 'pendT', 'colorPags', 'bnPags']) s[k] += d[k] || 0;
     for (const k in s.met) { s.met[k].n += d.met[k].n; s.met[k].t += d.met[k].t; }
-    for (const t in s.pag) for (const k in s.pag[t]) s.pag[t][k] += d.pag[t][k];
+    for (const [l, p] of Object.entries(d.prods)) { const q = s.prods[l] ||= { ...p, cant: 0, monto: 0 }; q.cant += p.cant; q.monto += p.monto; }
+    for (const [m, x] of Object.entries(d.maq || {})) { const q = s.maq[m] ||= { color: 0, bn: 0, trabajos: 0 }; q.color += x.color; q.bn += x.bn; q.trabajos += x.trabajos; }
   }
   return s;
 }
-export const pagTipo = (s, t) => s.pag[t].carta + s.pag[t].legal + s.pag[t].otro;
-export const pagTotal = s => pagTipo(s, 'imp') + pagTipo(s, 'cop');
+export const prodList = s => Object.values(s.prods).sort((a, b) => b.monto - a.monto);
+export const maqColor = s => Object.values(s.maq || {}).reduce((a, x) => a + (x.color || 0), 0);
 
 /** Desglose de ITBMS de un monto bruto, igual que el servidor */
 export function calcItbms(bruto, cfg) {
@@ -77,12 +110,13 @@ export function calcItbms(bruto, cfg) {
   return { sub: bruto, itbms: 0, total: bruto };
 }
 
-/** Comparación del cierre con lo vendido */
+/** Comparación del cierre con lo cobrado/hecho */
 export function analizarCierre(c, s) {
   const out = {};
+  const maq = maqColor(s);
+  if (maq) { out.logColor = maq; out.difLog = maq - s.colorPags; }
   if (!c) return out;
-  if (c.inicio != null && c.fin != null && c.fin >= c.inicio) { out.maq = c.fin - c.inicio; out.dif = out.maq - pagTotal(s); }
-  if (c.fiery != null) out.difFiery = c.fiery - pagTipo(s, 'imp');
+  if (c.inicio != null && c.fin != null && c.fin >= c.inicio) { out.maq = c.fin - c.inicio; out.dif = out.maq - s.colorPags; }
   if (c.efectivo_cents != null) out.difEf = c.efectivo_cents - s.met.efectivo.t;
   return out;
 }

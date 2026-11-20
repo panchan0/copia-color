@@ -31,7 +31,9 @@ export async function nuevoCliente(nombre = '') {
     title: 'Nuevo cliente',
     fields: [
       { name: 'name', label: 'Nombre o empresa', value: nombre },
-      { name: 'phone', label: 'Teléfono (opcional)', type: 'tel' },
+      { name: 'phone', label: 'Celular (opcional)', type: 'tel' },
+      { name: 'dm', label: 'DM / Instagram (opcional)' },
+      { name: 'email', label: 'Correo (opcional)', type: 'email' },
       { name: 'ruc', label: 'RUC / cédula (opcional)' },
     ],
     async onSubmit(v) {
@@ -98,4 +100,71 @@ export function exportMenu(btn, { onExcel, onPrint }) {
       el.addEventListener('click', e => { const b = e.target.closest('.it'); if (!b) return; close(); (b.dataset.x === 'xls' ? onExcel : onPrint)(); });
     },
   }));
+}
+
+/** Selector genérico de una lista (servicio, tamaño…). items: () => [{id, label, sub, cls}] */
+export function listPicker(btn, { items, getValue, onChange, placeholder = 'Selecciona', icon = '', search = false }) {
+  const paint = () => {
+    const cur = items().find(x => x.id === getValue());
+    btn.className = 'picker';
+    btn.innerHTML = `${icon}<span class="t${cur ? '' : ' ph'}">${cur ? esc(cur.label) : esc(placeholder)}</span>${cur && cur.sub ? `<span class="psub">${esc(cur.sub)}</span>` : ''}${ICON.chev}`;
+  };
+  btn.addEventListener('click', () => openMenu(btn, {
+    width: 'anchor',
+    build(el, close, place) {
+      el.innerHTML = `${search ? '<input class="input search" placeholder="Buscar…" autocomplete="off">' : ''}<div class="list"></div>`;
+      const list = el.querySelector('.list'), inp = el.querySelector('input');
+      const draw = () => {
+        const q = (inp?.value || '').trim().toLowerCase();
+        list.innerHTML = items().filter(x => !q || x.label.toLowerCase().includes(q)).map(x =>
+          `<button type="button" class="it${x.id === getValue() ? ' sel' : ''} ${x.cls || ''}" data-id="${esc(x.id)}"><span class="lbl">${esc(x.label)}</span>${x.sub ? `<small>${esc(x.sub)}</small>` : ''}</button>`).join('') || '<div class="none">Sin resultados</div>';
+        place();
+      };
+      inp?.addEventListener('input', draw);
+      if (inp) keyNav(inp, list);
+      list.addEventListener('click', e => { const b = e.target.closest('.it'); if (!b) return; close(); onChange(b.dataset.id); paint(); });
+      draw();
+      if (inp) setTimeout(() => inp.focus(), 20);
+    },
+  }));
+  paint();
+  return paint;
+}
+
+/** Selector de operador: lista guardada en Ajustes + agregar nuevo. */
+export function operadorPicker(btn, getValue, onChange) {
+  const paint = () => {
+    const v = getValue();
+    btn.className = 'picker';
+    btn.innerHTML = `${ICON.user}<span class="t${v ? '' : ' ph'}">${v ? esc(v) : 'Selecciona el operador'}</span>${ICON.chev}`;
+  };
+  btn.addEventListener('click', () => openMenu(btn, {
+    width: 'anchor',
+    build(el, close) {
+      const ops = S.settings.operadores || [];
+      el.innerHTML = `<div class="list">${ops.map(o => `<button type="button" class="it${o === getValue() ? ' sel' : ''}" data-v="${esc(o)}">${esc(o)}</button>`).join('')}
+        ${ops.length ? '' : '<div class="none">Todavía no hay operadores</div>'}<div class="sep"></div><button type="button" class="it add" data-add>${ICON.plus}Agregar operador</button></div>`;
+      el.addEventListener('click', async e => {
+        const b = e.target.closest('.it'); if (!b) return; close();
+        if (b.dataset.add !== undefined) {
+          const r = await dialog({
+            title: 'Nuevo operador', fields: [{ name: 'name', label: 'Nombre' }],
+            async onSubmit(v) {
+              const name = (v.name || '').trim(); if (!name) throw new Error('Escribe el nombre');
+              const st = structuredClone(S.settings);
+              if (!st.operadores.includes(name)) st.operadores.push(name);
+              const res = await api('/api/settings', { method: 'PUT', body: st });
+              S.settings = res.settings; syncNow();
+              return { name };
+            },
+          });
+          if (r) { onChange(r.name); paint(); }
+          return;
+        }
+        onChange(b.dataset.v); paint();
+      });
+    },
+  }));
+  paint();
+  return paint;
 }

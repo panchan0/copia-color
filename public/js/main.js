@@ -8,8 +8,10 @@ import * as dia from './views/dia.js';
 import * as caja from './views/caja.js';
 import * as reportes from './views/reportes.js';
 import * as ajustes from './views/ajustes.js';
+import * as ordenes from './views/ordenes.js';
+import * as maquinas from './views/maquinas.js';
 
-const VIEWS = { dia, caja, reportes, ajustes };
+const VIEWS = { dia, caja, ordenes, reportes, maquinas, ajustes };
 let mounted = false, vista = null;
 
 function go(v, push = true) {
