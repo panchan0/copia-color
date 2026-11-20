@@ -118,6 +118,7 @@ export async function procesar(parsed, map, maquina, fechaFija = null) {
       if (esColor(r[map.modo])) color = t; else bn = t;
     } else continue;
     color = Math.round(color); bn = Math.round(bn);
+    if (map.soloColor) { bn = 0; if (!color) continue; }
     if (!color && !bn) continue;
     out.push({ h: await sha(`${maquina}|${fechaFija || ''}|${r.join('\u0001')}`), fecha, color, bn });
     const d = porDia[fecha] ||= { color: 0, bn: 0, trabajos: 0 };
@@ -128,7 +129,10 @@ export async function procesar(parsed, map, maquina, fechaFija = null) {
 
 /** Trabajos cancelados, con error o páginas de prueba no cuentan. */
 function filaValida(r, map) {
-  if (map.estado >= 0 && /cancel|error|abort|fall/.test(norm(r[map.estado] || ''))) return false;
+  if (map.estado >= 0) {
+    const e = norm(r[map.estado] || '');
+    if (map.soloOk ? !/^(ok|completado|completed|impreso|printed|terminado|done)$/.test(e.trim()) : /cancel|error|abort|fall/.test(e)) return false;
+  }
   if (map.titulo >= 0 && /pagina de prueba|test page|configuration page|pagina de configuracion/.test(norm(r[map.titulo] || ''))) return false;
   return true;
 }
@@ -178,7 +182,7 @@ export async function proponerOrdenes(parsed, map, catalogo) {
     if (!filaValida(r, map)) continue;
     const t = tsDe(r[map.fecha], orden); if (!t) continue;
     if (!enDias(map, t.fecha)) continue;
-    const color = Math.round(num(r[map.color])), bn = Math.round(map.bn >= 0 ? num(r[map.bn]) : 0);
+    const color = Math.round(num(r[map.color])), bn = map.soloColor ? 0 : Math.round(map.bn >= 0 ? num(r[map.bn]) : 0);
     if (color <= 0 && bn <= 0) continue;
     const titulo = map.titulo >= 0 ? (r[map.titulo] || '').trim() : '';
     const tamTxt = map.tamPag >= 0 ? r[map.tamPag] : '';

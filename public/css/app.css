@@ -439,3 +439,8 @@ body.locked nav.tabs,body.locked main{display:none}
 .tag.t-log{background:#e8eefb;color:#2c4f9e}
 .rango{align-items:flex-end;margin-bottom:10px}
 .rango .field{min-width:150px}
+.improw{align-items:flex-end;margin-top:10px}
+.improw .field{min-width:170px}
+.big-imp{cursor:pointer;height:47px;padding:0 22px}
+.big-imp.disabled{opacity:.5;pointer-events:none}
+.impres{margin-top:6px}
