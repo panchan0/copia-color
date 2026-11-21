@@ -5,6 +5,7 @@ export interface Env {
   ASSETS: Fetcher;
   ALLOW_SIGNUP?: string;
   PBKDF2_ITERATIONS?: string;
+  CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string };
 }
 
 export interface Ctx {

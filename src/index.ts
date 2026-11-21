@@ -52,7 +52,7 @@ export default {
       if (p === '/api/auth/register' && m === 'POST') return await R.register(env, req, url);
       if (p === '/api/auth/login' && m === 'POST') return await R.login(env, req, url);
       if (p === '/api/auth/logout' && m === 'POST') return await R.logout(env, req, url);
-      if (p === '/api/config' && m === 'GET') return json({ signup: (env.ALLOW_SIGNUP || 'true') === 'true' });
+      if (p === '/api/config' && m === 'GET') return json({ signup: (env.ALLOW_SIGNUP || 'true') === 'true', version: env.CF_VERSION_METADATA?.id || 'dev' });
       for (const [method, re, h] of routes) {
         const match = re.exec(p);
         if (match && method === m) {

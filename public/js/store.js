@@ -16,7 +16,19 @@ export async function loadClients() { S.clients = (await api('/api/clients')).cl
 
 /* Sincronización entre dispositivos: se consulta un contador de cambios cada 15 s */
 let timer = null, checking = false;
+/* Aviso de versión nueva: si se publicó una actualización, se ofrece recargar */
+let version = null;
+async function checkVersion() {
+  try {
+    const r = await fetch('/api/config', { cache: 'no-store', headers: { 'x-requested-with': 'copias-color' } });
+    const { version: v } = await r.json();
+    if (!version) version = v;
+    else if (v && v !== version) document.getElementById('upd')?.classList.remove('hide');
+  } catch { /* sin conexión */ }
+}
+let lastV = 0;
 async function check() {
+  if (Date.now() - lastV > 60000) { lastV = Date.now(); checkVersion(); }
   if (checking || document.hidden || !S.account) return;
   checking = true;
   try {
@@ -31,6 +43,7 @@ async function check() {
 }
 export function startSync() {
   stopSync();
+  checkVersion();
   timer = setInterval(check, 15000);
   document.addEventListener('visibilitychange', check);
   window.addEventListener('focus', check);

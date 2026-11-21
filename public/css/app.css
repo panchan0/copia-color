@@ -448,3 +448,5 @@ body.locked nav.tabs,body.locked main{display:none}
 .bulk{margin-bottom:12px;align-items:center}
 .btn.armed{background:#fff6dc;border-color:#e5c66a}
 .lnk.met{color:var(--tarjeta)}
+.updbar{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#e8eefb;color:#1d3d85;border-radius:10px;padding:9px 12px;font-size:14px;font-weight:600;margin-bottom:12px}
+.updbar.hide{display:none}

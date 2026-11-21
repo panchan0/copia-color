@@ -65,6 +65,8 @@ setHandlers(
   online => $('#netbar').classList.toggle('hide', online),
 );
 
+document.getElementById('updbtn')?.addEventListener('click', () => location.reload());
+
 (async () => {
   try { await enter(); }
   catch (e) { if (e.status !== 401) { toast(e.message, true); lock(); } }
