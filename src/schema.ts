@@ -100,6 +100,12 @@ async function migrate(env: Env) {
   const sc = await columns(env, 'sales');
   if (!sc.has('origen')) await env.DB.prepare('ALTER TABLE sales ADD COLUMN origen TEXT').run();
   await env.DB.batch(INDEXES.map(s => env.DB.prepare(s)));
+  // Órdenes sin cobrar que quedaron sin ITBMS: se les agrega el 7%.
+  await env.DB.prepare(`UPDATE sales SET
+      subtotal_cents = COALESCE(subtotal_cents, total_cents),
+      itbms_cents = CAST(ROUND(COALESCE(subtotal_cents, total_cents) * 7 / 100.0) AS INTEGER),
+      total_cents = COALESCE(subtotal_cents, total_cents) + CAST(ROUND(COALESCE(subtotal_cents, total_cents) * 7 / 100.0) AS INTEGER)
+    WHERE estado = 'pendiente' AND COALESCE(itbms_cents, 0) = 0 AND COALESCE(subtotal_cents, total_cents, 0) > 0`).run();
 }
 
 let ready: Promise<void> | null = null;
