@@ -319,11 +319,14 @@ export async function paySale(c: Ctx) {
   const { fecha, hora } = localParts(ts, st.tz);
   // Las órdenes importadas del registro se dan por cobradas el día del trabajo
   const r = await c.env.DB.prepare(`UPDATE sales SET estado = 'pagada', metodo = ?,
+                                      itbms_cents = CASE WHEN COALESCE(itbms_cents, 0) = 0 THEN CAST(ROUND(COALESCE(subtotal_cents, total_cents) * ? / 100.0) AS INTEGER) ELSE itbms_cents END,
+                                      total_cents = CASE WHEN COALESCE(itbms_cents, 0) = 0 THEN COALESCE(subtotal_cents, total_cents) + CAST(ROUND(COALESCE(subtotal_cents, total_cents) * ? / 100.0) AS INTEGER) ELSE total_cents END,
+                                      subtotal_cents = COALESCE(subtotal_cents, total_cents),
                                       pagada_ts = CASE WHEN origen IS NOT NULL THEN ts ELSE ? END,
                                       pagada_fecha = CASE WHEN origen IS NOT NULL THEN fecha ELSE ? END,
                                       pagada_hora = CASE WHEN origen IS NOT NULL THEN hora ELSE ? END
                                     WHERE id = ? AND account_id = ? AND estado = 'pendiente'`)
-    .bind(b.metodo, ts, fecha, hora, c.params.id, c.accountId).run();
+    .bind(b.metodo, st.itbms.tasa, st.itbms.tasa, ts, fecha, hora, c.params.id, c.accountId).run();
   if (!r.meta.changes) throw new HttpError(409, 'La orden ya no está pendiente');
   await (await bumpRev(c.env, c.accountId)).run();
   return json({ ok: true, sale: await getSale(c.env, c.accountId, c.params.id) });
@@ -350,10 +353,13 @@ export async function payMany(c: Ctx) {
   let n = 0;
   for (let i = 0; i < b.ids.length; i += 90) {
     const res = await c.env.DB.batch(b.ids.slice(i, i + 90).map((id: unknown) => c.env.DB.prepare(`UPDATE sales SET estado = 'pagada', metodo = ?,
+        itbms_cents = CASE WHEN COALESCE(itbms_cents, 0) = 0 THEN CAST(ROUND(COALESCE(subtotal_cents, total_cents) * ? / 100.0) AS INTEGER) ELSE itbms_cents END,
+                                      total_cents = CASE WHEN COALESCE(itbms_cents, 0) = 0 THEN COALESCE(subtotal_cents, total_cents) + CAST(ROUND(COALESCE(subtotal_cents, total_cents) * ? / 100.0) AS INTEGER) ELSE total_cents END,
+                                      subtotal_cents = COALESCE(subtotal_cents, total_cents),
         pagada_ts = CASE WHEN origen IS NOT NULL THEN ts ELSE ? END,
         pagada_fecha = CASE WHEN origen IS NOT NULL THEN fecha ELSE ? END,
         pagada_hora = CASE WHEN origen IS NOT NULL THEN hora ELSE ? END
-      WHERE id = ? AND account_id = ? AND estado = 'pendiente'`).bind(b.metodo, ts, fecha, hora, str(id, 64), c.accountId)));
+      WHERE id = ? AND account_id = ? AND estado = 'pendiente'`).bind(b.metodo, st.itbms.tasa, st.itbms.tasa, ts, fecha, hora, str(id, 64), c.accountId)));
     n += res.reduce((a, x) => a + (x.meta.changes || 0), 0);
   }
   if (n) await (await bumpRev(c.env, c.accountId)).run();

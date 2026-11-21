@@ -450,3 +450,15 @@ body.locked nav.tabs,body.locked main{display:none}
 .lnk.met{color:var(--tarjeta)}
 .updbar{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#e8eefb;color:#1d3d85;border-radius:10px;padding:9px 12px;font-size:14px;font-weight:600;margin-bottom:12px}
 .updbar.hide{display:none}
+
+/* pestañas de estado sin desbordar en celular */
+#v-ordenes .toolbar{flex-wrap:wrap}
+#v-ordenes [data-est]{flex:1 1 100%;min-width:0;max-width:100%}
+#v-ordenes [data-q]{flex:1 1 100%;max-width:none!important}
+@media (min-width:900px){
+  #v-ordenes [data-est]{flex:0 1 560px}
+  #v-ordenes [data-q]{flex:0 1 320px}
+}
+.bulk .btn{white-space:normal;text-align:left}
+main{overflow-x:hidden}
+.stbl .c-t small{display:block;font-weight:500;color:var(--muted);font-size:11px;white-space:nowrap}

@@ -6,14 +6,14 @@ import { bindCobrar, bindMetodo } from '../ui/cobrar.js';
 import { esc, money, int, MESES, cap, startOfMonth, endOfMonth, addMonths, parseD } from '../util.js';
 
 let root, estado = 'pendiente', mes = null, lista = [], loading = false, reqId = 0, anularPend = null;
-const ESTS = { pendiente: 'Pendientes', pordefinir: 'Método por definir', pagada: 'Pagadas', anulada: 'Anuladas', todas: 'Todas' };
+const ESTS = { pendiente: 'Pendientes', pordefinir: 'Por definir', pagada: 'Pagadas', anulada: 'Anuladas', todas: 'Todas' };
 
 export function mount(el) {
   root = el;
   mes = startOfMonth(today());
   root.innerHTML = `
   <div class="toolbar">
-    <div class="seg" data-est style="min-width:min(100%,420px)">${Object.entries(ESTS).map(([k, l]) => `<button data-e="${k}">${l}</button>`).join('')}</div>
+    <div class="seg scroll" data-est>${Object.entries(ESTS).map(([k, l]) => `<button data-e="${k}">${l}</button>`).join('')}</div>
     <div class="row mesnav" data-mesnav>
       <button class="iconbtn" data-prev aria-label="Mes anterior">${ICON.left}</button>
       <div class="datebtn" style="cursor:default" data-mes></div>
