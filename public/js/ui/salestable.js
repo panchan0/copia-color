@@ -21,6 +21,7 @@ export function salesTable(sales, { anular = true, cobrar = true, pend = null, e
       const acts = [
         `<button class="lnk ord" data-id="${esc(v.id)}">Orden</button>`,
         cobrar && v.estado === 'pendiente' ? `<button class="lnk cob" data-id="${esc(v.id)}">Cobrar</button>` : '',
+        cobrar && v.estado === 'pagada' && v.metodo === 'pordefinir' ? `<button class="lnk met" data-id="${esc(v.id)}">Poner método</button>` : '',
         anular && !anul ? `<button class="lnk an" data-id="${esc(v.id)}">${pend === v.id ? '¿Anular?' : 'Anular'}</button>` : '',
       ].join('');
       return `<tr class="${anul ? 'void' : ''}">

@@ -5,7 +5,7 @@ import { openCalendar } from '../ui/calendar.js';
 import { exportMenu } from '../ui/pickers.js';
 import { exportExcel, printReport } from '../export.js';
 import { salesTable, bindOrden } from '../ui/salestable.js';
-import { bindCobrar } from '../ui/cobrar.js';
+import { bindCobrar, bindMetodo } from '../ui/cobrar.js';
 import { esc, money, int, addDays, fechaLarga, cap, statsFromSales, analizarCierre, METODOS, toCents, centsToInput, dayFromSummary } from '../util.js';
 
 let root, fecha = null, sales = [], cobrosPrev = [], closing = null, maq = {}, loading = false, reqId = 0, cierreDirty = false, anularPend = null;
@@ -78,6 +78,7 @@ export function mount(el) {
   list.addEventListener('click', onAnular);
   bindOrden(list, id => sales.find(v => v.id === id));
   bindCobrar(list, () => load(true));
+  bindMetodo(list, () => load(true));
   on(what => { if (what === 'remote' || what === 'sale') load(true); });
   if (!fecha) fecha = today();
 }
@@ -143,6 +144,7 @@ function paint() {
   root.querySelector('[data-kpend]').textContent = money(s.pendT);
   root.querySelector('[data-kpends]').textContent = `${s.pendN} orden${s.pendN === 1 ? '' : 'es'} de este día`;
   for (const k of Object.keys(METODOS)) {
+    if (!root.querySelector(`[data-m-${k}]`)) continue;
     root.querySelector(`[data-m-${k}]`).textContent = money(s.met[k].t);
     root.querySelector(`[data-n-${k}]`).textContent = `${s.met[k].n} cobro${s.met[k].n === 1 ? '' : 's'}`;
   }

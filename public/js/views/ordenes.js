@@ -2,11 +2,11 @@ import { api } from '../api.js';
 import { today, on, syncNow, emit } from '../store.js';
 import { toast, ICON } from '../ui/dom.js';
 import { salesTable, bindOrden, numTxt } from '../ui/salestable.js';
-import { bindCobrar } from '../ui/cobrar.js';
+import { bindCobrar, bindMetodo } from '../ui/cobrar.js';
 import { esc, money, int, MESES, cap, startOfMonth, endOfMonth, addMonths, parseD } from '../util.js';
 
 let root, estado = 'pendiente', mes = null, lista = [], loading = false, reqId = 0, anularPend = null;
-const ESTS = { pendiente: 'Pendientes', pagada: 'Pagadas', anulada: 'Anuladas', todas: 'Todas' };
+const ESTS = { pendiente: 'Pendientes', pordefinir: 'Método por definir', pagada: 'Pagadas', anulada: 'Anuladas', todas: 'Todas' };
 
 export function mount(el) {
   root = el;
@@ -27,14 +27,20 @@ export function mount(el) {
     <div class="kpi"><div class="label" style="margin:0" data-k2l>Monto</div><div class="v" data-k2>$0.00</div></div>
     <div class="kpi"><div class="label" style="margin:0">Más antigua</div><div class="v small" data-k3>—</div></div>
   </div>
+  <div class="row wrap bulk hide" data-bulk>
+    <button class="btn line" data-cobrartodas>Cobrar todas las de la lista · método por definir</button>
+    <span class="sub-note" style="margin:0">Después les pones el método con “Poner método”.</span>
+  </div>
   <div class="card"><div data-list></div></div>`;
   root.querySelector('[data-est]').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; estado = b.dataset.e; load(); });
   root.querySelector('[data-prev]').onclick = () => { mes = addMonths(mes, -1); load(); };
   root.querySelector('[data-next]').onclick = () => { mes = addMonths(mes, 1); load(); };
   root.querySelector('[data-q]').addEventListener('input', paint);
+  root.querySelector('[data-cobrartodas]').addEventListener('click', cobrarTodas);
   const list = root.querySelector('[data-list]');
   bindOrden(list, id => lista.find(v => v.id === id));
   bindCobrar(list, () => load(true));
+  bindMetodo(list, () => load(true));
   list.addEventListener('click', onAnular);
   on(what => { if ((what === 'remote' || what === 'sale') && root.closest('.view.on')) load(true); });
 }
@@ -46,7 +52,7 @@ async function load(silent = false) {
   paintHead();
   if (!silent) { loading = true; paint(); }
   try {
-    const q = estado === 'pendiente' ? 'estado=pendiente' : `estado=${estado}&from=${mes}&to=${endOfMonth(mes)}`;
+    const q = estado === 'pendiente' ? 'estado=pendiente' : estado === 'pordefinir' ? 'estado=pordefinir' : `estado=${estado}&from=${mes}&to=${endOfMonth(mes)}`;
     const r = await api(`/api/orders?${q}`);
     if (id !== reqId) return;
     lista = r.sales; loading = false; paint();
@@ -55,7 +61,7 @@ async function load(silent = false) {
 
 function paintHead() {
   root.querySelectorAll('[data-est] button').forEach(b => b.classList.toggle('sel', b.dataset.e === estado));
-  root.querySelector('[data-mesnav]').classList.toggle('hide', estado === 'pendiente');
+  root.querySelector('[data-mesnav]').classList.toggle('hide', estado === 'pendiente' || estado === 'pordefinir');
   const d = parseD(mes);
   root.querySelector('[data-mes]').textContent = `${cap(MESES[d.getUTCMonth()])} ${d.getUTCFullYear()}`;
   root.querySelector('[data-next]').disabled = mes >= startOfMonth(today());
@@ -77,10 +83,24 @@ function paint() {
   root.querySelector('[data-k2]').textContent = money(total);
   const vieja = vis.slice().sort((a, b) => a.ts - b.ts)[0];
   root.querySelector('[data-k3]').textContent = vieja ? `N° ${numTxt(vieja)} · ${vieja.fecha.split('-').reverse().join('/')}` : '—';
+  root.querySelector('[data-bulk]').classList.toggle('hide', estado !== 'pendiente' || !vis.length);
   root.querySelector('[data-list]').innerHTML = salesTable(vis, {
     loading, fecha: true, pago: estado !== 'pendiente', pend: anularPend,
     empty: estado === 'pendiente' ? 'No hay órdenes pendientes por cobrar' : 'Sin órdenes en este mes',
   });
+}
+
+async function cobrarTodas(e) {
+  const vis = filtrar().filter(v => v.estado === 'pendiente');
+  if (!vis.length) return;
+  const b = e.currentTarget;
+  if (!b.classList.contains('armed')) { b.classList.add('armed'); b.textContent = `¿Cobrar ${vis.length} órdenes sin especificar método?`; setTimeout(() => { b.classList.remove('armed'); b.textContent = 'Cobrar todas las de la lista · método por definir'; }, 5000); return; }
+  b.disabled = true;
+  try {
+    const r = await api('/api/sales/pay-many', { method: 'POST', body: { ids: vis.map(v => v.id), metodo: 'pordefinir' } });
+    toast(`${r.cobradas} órdenes cobradas · método por definir`); emit('sale'); syncNow(); load(true);
+  } catch (err) { toast(err.message, true); }
+  b.disabled = false; b.classList.remove('armed'); b.textContent = 'Cobrar todas las de la lista · método por definir';
 }
 
 async function onAnular(e) {

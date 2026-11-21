@@ -203,6 +203,7 @@ export async function listSales(c: Ctx) {
 export async function listOrders(c: Ctx) {
   const estado = c.url.searchParams.get('estado') || 'pendiente';
   if (estado === 'pendiente') return json({ sales: await querySales(c.env, "s.account_id = ? AND s.estado = 'pendiente'", [c.accountId], 's.ts DESC', 1000) });
+  if (estado === 'pordefinir') return json({ sales: await querySales(c.env, "s.account_id = ? AND s.estado = 'pagada' AND s.metodo = 'pordefinir'", [c.accountId], 's.ts DESC', 1000) });
   const { from, to } = range(c.url);
   const est = ['pagada', 'anulada'].includes(estado) ? ` AND s.estado = '${estado}'` : '';
   return json({ sales: await querySales(c.env, `s.account_id = ? AND s.fecha BETWEEN ? AND ?${est}`, [c.accountId, from, to], 's.ts DESC', 3000) });
@@ -218,7 +219,7 @@ export async function saleById(c: Ctx) {
   return json({ sale });
 }
 
-const METODOS = new Set(['efectivo', 'tarjeta', 'yappy']);
+const METODOS = new Set(['efectivo', 'tarjeta', 'yappy', 'pordefinir']);
 const EMAIL_OK = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
 
 export async function createSale(c: Ctx) {
@@ -328,6 +329,37 @@ export async function paySale(c: Ctx) {
   return json({ ok: true, sale: await getSale(c.env, c.accountId, c.params.id) });
 }
 
+/** Cambiar el método de una orden cobrada (por ejemplo, de "Por definir" a Yappy). Mantiene la fecha de cobro. */
+export async function setMetodo(c: Ctx) {
+  const b = await readJson(c.req);
+  if (!METODOS.has(b.metodo)) throw new HttpError(400, 'Método de pago inválido');
+  const r = await c.env.DB.prepare(`UPDATE sales SET metodo = ? WHERE id = ? AND account_id = ? AND estado = 'pagada'`).bind(b.metodo, c.params.id, c.accountId).run();
+  if (!r.meta.changes) throw new HttpError(409, 'La orden no está cobrada');
+  await (await bumpRev(c.env, c.accountId)).run();
+  return json({ ok: true, sale: await getSale(c.env, c.accountId, c.params.id) });
+}
+
+/** Cobrar varias órdenes pendientes de una vez. */
+export async function payMany(c: Ctx) {
+  const b = await readJson(c.req);
+  if (!METODOS.has(b.metodo)) throw new HttpError(400, 'Método de pago inválido');
+  if (!Array.isArray(b.ids) || !b.ids.length || b.ids.length > 500) throw new HttpError(400, 'Sin órdenes');
+  const st = await getSettings(c.env, c.accountId);
+  const ts = Date.now();
+  const { fecha, hora } = localParts(ts, st.tz);
+  let n = 0;
+  for (let i = 0; i < b.ids.length; i += 90) {
+    const res = await c.env.DB.batch(b.ids.slice(i, i + 90).map((id: unknown) => c.env.DB.prepare(`UPDATE sales SET estado = 'pagada', metodo = ?,
+        pagada_ts = CASE WHEN origen IS NOT NULL THEN ts ELSE ? END,
+        pagada_fecha = CASE WHEN origen IS NOT NULL THEN fecha ELSE ? END,
+        pagada_hora = CASE WHEN origen IS NOT NULL THEN hora ELSE ? END
+      WHERE id = ? AND account_id = ? AND estado = 'pendiente'`).bind(b.metodo, ts, fecha, hora, str(id, 64), c.accountId)));
+    n += res.reduce((a, x) => a + (x.meta.changes || 0), 0);
+  }
+  if (n) await (await bumpRev(c.env, c.accountId)).run();
+  return json({ ok: true, cobradas: n });
+}
+
 /** Anular: la orden pierde su número para que el siguiente lo reutilice si era el último. */
 export async function voidSale(c: Ctx) {
   const r = await c.env.DB.prepare(`UPDATE sales SET anulada = 1, anulada_ts = ?, estado = 'anulada', numero_anulado = numero, numero = NULL
@@ -362,7 +394,7 @@ export async function summary(c: Ctx) {
   const days: Record<string, any> = {};
   const day = (f: string) => days[f] ??= {
     n: 0, total: 0, sub: 0, itbms: 0, cobrado: 0, pendN: 0, pendT: 0,
-    met: { efectivo: { n: 0, t: 0 }, tarjeta: { n: 0, t: 0 }, yappy: { n: 0, t: 0 } }, items: [] as any[], maq: {} as Record<string, any>,
+    met: { efectivo: { n: 0, t: 0 }, tarjeta: { n: 0, t: 0 }, yappy: { n: 0, t: 0 }, pordefinir: { n: 0, t: 0 } }, items: [] as any[], maq: {} as Record<string, any>,
   };
   for (const r of cr.results as any[]) Object.assign(day(r.fecha), { n: r.n, total: r.t || 0, sub: r.sb || 0, itbms: r.it || 0 });
   for (const r of pg.results as any[]) { const d = day(r.fecha); if (d.met[r.metodo]) d.met[r.metodo] = { n: r.n, t: r.t }; d.cobrado += r.t || 0; }

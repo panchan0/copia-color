@@ -23,6 +23,8 @@ add('GET', '/api/sales', R.listSales);
 add('POST', '/api/sales', R.createSale);
 add('POST', '/api/sales/:id/void', R.voidSale);
 add('POST', '/api/sales/:id/pay', R.paySale);
+add('POST', '/api/sales/:id/metodo', R.setMetodo);
+add('POST', '/api/sales/pay-many', R.payMany);
 add('GET', '/api/orders', R.listOrders);
 add('POST', '/api/machine-jobs', R.importJobs);
 add('DELETE', '/api/machine-jobs', R.deleteJobsDay);

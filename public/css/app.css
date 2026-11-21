@@ -444,3 +444,7 @@ body.locked nav.tabs,body.locked main{display:none}
 .big-imp{cursor:pointer;height:47px;padding:0 22px}
 .big-imp.disabled{opacity:.5;pointer-events:none}
 .impres{margin-top:6px}
+.m-pordefinir{--mc:#8a8a92}
+.bulk{margin-bottom:12px;align-items:center}
+.btn.armed{background:#fff6dc;border-color:#e5c66a}
+.lnk.met{color:var(--tarjeta)}
