@@ -16,7 +16,6 @@ export function mount(el) {
     <div class="card aj-precios">
       <div class="row between wrap"><div class="label" style="margin:0">Productos, servicios y precios</div>
         <div class="row wrap"><button class="btn line" data-newserv>${ICON.plus}Nuevo producto o servicio</button><button class="btn" data-save>Guardar precios</button></div></div>
-      <p class="sub-note">Precio en 0 = se escribe al cobrar. Los productos y tamaños ocultos no aparecen en Caja.</p>
       <div class="seg scroll" data-pcat style="margin:10px 0 4px">${Object.entries(CATS).map(([k, l]) => `<button data-c="${k}">${l}</button>`).join('')}</div>
       <div data-precios></div>
     </div>

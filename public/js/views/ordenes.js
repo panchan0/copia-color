@@ -29,7 +29,6 @@ export function mount(el) {
   </div>
   <div class="row wrap bulk hide" data-bulk>
     <button class="btn line" data-cobrartodas>Cobrar todas las de la lista · método por definir</button>
-    <span class="sub-note" style="margin:0">Después les pones el método con “Poner método”.</span>
   </div>
   <div class="card"><div data-list></div></div>`;
   root.querySelector('[data-est]').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; estado = b.dataset.e; load(); });

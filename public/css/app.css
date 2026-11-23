@@ -216,7 +216,7 @@ body.locked nav.tabs,body.locked main{display:none}
 /* ---------- tira de indicadores (Día) ---------- */
 .strip{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:12px}
 .strip>.kpi{grid-column:span 3}
-.strip .k-total{grid-column:1/-1}
+.strip.s7>.kpi.k-total{grid-column:1/-1}
 .strip>.kpi.m-efectivo,.strip>.kpi.m-tarjeta,.strip>.kpi.m-yappy{grid-column:span 2}
 @media (max-width:899px){.strip .m-efectivo .v,.strip .m-tarjeta .v,.strip .m-yappy .v{font-size:18px}.strip .m-efectivo,.strip .m-tarjeta,.strip .m-yappy{padding:12px}}
 .strip .label .dot{width:8px;height:8px;vertical-align:1px;margin-right:2px}
@@ -462,3 +462,142 @@ body.locked nav.tabs,body.locked main{display:none}
 .bulk .btn{white-space:normal;text-align:left}
 main{overflow-x:hidden}
 .stbl .c-t small{display:block;font-weight:500;color:var(--muted);font-size:11px;white-space:nowrap}
+
+/* =================== v5 · estilo administrativo (limpio y compacto) =================== */
+:root{
+  --paper:#f4f5f7;--card:#fff;--ink:#1f2328;--muted:#5f6670;--line:#d9dde2;--soft:#eef0f3;--soft2:#f7f8fa;
+  --acc:#9b1c31;--acc2:#fbeef0;--link:#1a6fc4;
+  --r:6px;--side:220px;
+  --shadow:0 8px 24px rgba(16,24,40,.14),0 1px 3px rgba(16,24,40,.08);
+}
+html,body{font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;font-size:14px;background:var(--paper)}
+.num,.big,.kpi .v,.mrow .a,.sales .amt,.lineprev b,.qty input,.chip span,.tline .q,.recent .r b,.recent .r .h,.cal .d,.picker .psub,.quick button,.sales .h{font-family:'Inter',system-ui,sans-serif;font-variant-numeric:tabular-nums}
+
+/* tarjetas y títulos */
+.card{border-radius:var(--r);padding:14px 16px;margin-bottom:12px;box-shadow:none}
+.label{font-size:13px;font-weight:700;color:var(--ink);text-transform:none;letter-spacing:0;margin-bottom:10px}
+.sub-note{font-size:12.5px}
+.big{font-size:28px;font-weight:700;letter-spacing:-.01em}
+
+/* controles */
+.input,.picker,.datebtn{border:1px solid #c6ccd3;border-radius:4px;background:#fff}
+.input{padding:8px 10px;font-size:16px}
+.input:focus,.picker.open{border-color:var(--link);box-shadow:0 0 0 2px rgba(26,111,196,.15)}
+.picker{height:40px;font-size:14px;padding:0 10px}
+.datebtn{height:38px;font-size:14px;font-weight:600;padding:0 12px}
+.iconbtn{width:38px;height:38px;border-radius:4px;border:1px solid #c6ccd3}
+.field label{font-size:12.5px;color:var(--muted);font-weight:500}
+.btn{border-radius:4px;padding:9px 14px;font-size:14px;font-weight:600;background:var(--acc)}
+.btn.sm{padding:6px 10px;font-size:13px;border-radius:4px}
+.btn.line{border:1px solid #c6ccd3;background:#fff}
+.btn.ghost{background:var(--soft)}
+.btn.danger{border:1px solid #efc2c2}
+.pay{font-size:16px;padding:12px}
+.lnk{font-weight:600;color:var(--link)}
+.lnk.an{color:var(--bad)}.lnk.cob{color:var(--ok)}
+.check input{accent-color:var(--acc)}
+
+/* pestañas tipo subrayado */
+.seg{background:transparent;padding:0;border-radius:0;gap:0;border-bottom:1px solid var(--line)}
+.seg button{border-radius:0;padding:9px 12px;font-size:14px;font-weight:600;border-bottom:2px solid transparent;margin-bottom:-1px}
+.seg button.sel{background:transparent;box-shadow:none;color:var(--acc);border-bottom-color:var(--acc)}
+.seg.scroll button{padding:9px 12px}
+
+/* chips de cantidad / opciones */
+.chip{border:1px solid #c6ccd3;border-radius:4px;padding:10px 6px;font-size:14px;font-weight:600}
+.chip.sel{background:var(--acc);border-color:var(--acc)}
+.qty button{width:44px;height:44px;border-radius:4px;border:1px solid #c6ccd3;font-size:20px}
+.qty input{height:44px;font-size:20px;border:1px solid #c6ccd3;border-radius:4px}
+.quick button{border-radius:4px;font-size:13px;padding:7px 0}
+.tline .x{border-radius:4px}
+
+/* indicadores: rejilla sin huecos */
+.kpi{border-radius:var(--r);padding:12px 14px}
+.kpi .label{font-size:12px;font-weight:600;color:var(--muted)}
+.kpi .v{font-size:20px;font-weight:700;margin-top:4px}
+.kpi .s{font-size:12px}
+.kpi .s:empty{display:none}
+.strip,.strip.s7{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.strip.s7>.kpi.k-pend,.strip>.kpi,.strip>.kpi.k-pend,.strip>.kpi.m-efectivo,.strip>.kpi.m-tarjeta,.strip>.kpi.m-yappy{grid-column:auto;padding:12px 14px}
+.strip.s7>.kpi.k-total{grid-column:1/-1}
+.strip .big{font-size:28px;margin-top:4px}
+.strip .m-efectivo .v,.strip .m-tarjeta .v,.strip .m-yappy .v{font-size:20px}
+.strip3{gap:8px}
+.strip3 .kpi .v{font-size:18px}
+.strip3 .kpi .v.small{font-size:14px;line-height:1.3}
+.kpis{gap:8px}
+.bar{height:6px;border-radius:3px;margin-top:10px}
+.bar i{background:var(--acc);border-radius:3px}
+
+/* tablas */
+.stbl,.dtable{font-size:13.5px}
+.stbl th,.dtable th{font-size:12px;font-weight:600;color:var(--ink);text-transform:none;letter-spacing:0;background:var(--soft2);border-bottom:1px solid var(--line)}
+.stbl td{padding:9px 8px}
+.stbl .c-n{color:var(--muted);font-weight:600}
+.stbl tbody tr:hover td{background:#f9fafb}
+.tag{border-radius:3px;font-weight:600}
+
+/* menú, calendario, diálogo */
+.menu{border-radius:6px}
+.menu .it{border-radius:4px;padding:9px 10px;font-size:14px;font-weight:500}
+.cal .d{border-radius:4px;font-size:13px}
+.cal .d.sel{background:var(--acc)}
+.cal .hd button{border-radius:4px}
+.dialog{border-radius:10px 10px 0 0}
+.toast{border-radius:6px}
+.pill{background:var(--acc);border-radius:3px}
+
+/* navegación inferior (celular) */
+nav.tabs{box-shadow:0 -1px 0 var(--line)}
+nav.tabs button{font-size:11px;font-weight:600;border-radius:6px}
+nav.tabs svg{width:21px;height:21px;stroke-width:1.8}
+nav.tabs button.on{color:var(--acc)}
+nav.tabs button.on svg{stroke:var(--acc)}
+
+/* Ajustes: precios compactos */
+.pgrid{grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px 10px}
+.pgrid .input,.pserv .input{padding:6px 8px}
+.pserv{padding:12px 0}
+.pserv-n{font-size:14px}
+
+/* Órdenes */
+.bulk .btn{font-size:13px}
+
+/* barra de herramientas */
+.toolbar{gap:6px;margin-bottom:12px}
+
+@media (max-width:899px){
+  main{padding:10px 10px 20px}
+  .card{padding:12px}
+  .grid2{gap:8px}
+}
+
+@media (min-width:900px){
+  html,body{font-size:14px}
+  nav.tabs{background:#fff;padding:16px 10px}
+  nav.tabs .brand{font-size:17px;padding:4px 10px 20px}
+  nav.tabs button{padding:9px 12px;font-size:14px;font-weight:500;color:var(--ink);border-radius:4px;border-left:3px solid transparent}
+  nav.tabs button svg{stroke:var(--muted)}
+  nav.tabs button:hover{background:var(--soft2)}
+  nav.tabs button.on{background:var(--acc2);color:var(--acc);font-weight:600;border-left-color:var(--acc)}
+  nav.tabs button.on svg{stroke:var(--acc)}
+  main{padding:20px 24px 40px;max-width:1500px;margin:0}
+  .input{font-size:14px;padding:7px 10px}
+  .card{padding:16px 18px;margin-bottom:14px}
+  .strip,.strip.s7{grid-template-columns:1.5fr repeat(6,minmax(0,1fr));gap:10px;margin-bottom:14px}
+  .strip.s7>.kpi.k-total{grid-column:auto}
+  .strip .big{font-size:26px}
+  .strip .kpi{padding:12px 14px}
+  .strip3{gap:10px}
+  .kpis{gap:10px}
+  .chip{padding:12px 6px;font-size:14px}
+  .qty button,.qty input{height:44px}
+  .dialog{border-radius:8px}
+  .lay-caja{gap:0 14px}
+  .lay-rep{gap:0 14px}
+  .lay-aj{column-gap:14px}
+  .toolbar .seg{flex:0 1 auto}
+}
+@media (min-width:1400px){ main{padding:22px 28px 44px} }
+@media (min-width:1900px){ html,body{font-size:15px} }
+@media (max-width:899px){.cgrid>.field:nth-child(3){grid-column:1/-1}}

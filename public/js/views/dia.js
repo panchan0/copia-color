@@ -37,7 +37,7 @@ export function mount(el) {
       <div class="s" data-meta></div>
     </div>
     <div class="kpi"><div class="label" style="margin:0">Páginas a color</div><div class="v" data-kcol>0</div><div class="s" data-kcols></div></div>
-    <div class="kpi"><div class="label" style="margin:0">Blanco y negro</div><div class="v" data-kbn>0</div><div class="s">páginas y hojas</div></div>
+    <div class="kpi"><div class="label" style="margin:0">Blanco y negro</div><div class="v" data-kbn>0</div></div>
     <div class="kpi k-pend"><div class="label" style="margin:0">Por cobrar</div><div class="v" data-kpend>$0.00</div><div class="s" data-kpends></div></div>
     <div class="kpi m-efectivo"><div class="label" style="margin:0"><span class="dot"></span> Efectivo</div><div class="v" data-m-efectivo>$0.00</div><div class="s" data-n-efectivo></div></div>
     <div class="kpi m-tarjeta"><div class="label" style="margin:0"><span class="dot"></span> Tarjeta</div><div class="v" data-m-tarjeta>$0.00</div><div class="s" data-n-tarjeta></div></div>
@@ -139,7 +139,7 @@ function paint() {
   root.querySelector('[data-meta]').textContent = metaDia ? `${Math.round(pct)}% de la meta diaria (${money(metaDia)})` : '';
   root.querySelector('[data-kcol]').textContent = int(s.colorPags);
   const mc = Object.values(maq).reduce((a, x) => a + x.color, 0);
-  root.querySelector('[data-kcols]').textContent = mc ? `Máquinas: ${int(mc)}` : 'cobradas';
+  root.querySelector('[data-kcols]').textContent = mc ? `Máquinas: ${int(mc)}` : '';
   root.querySelector('[data-kbn]').textContent = int(s.bnPags);
   root.querySelector('[data-kpend]').textContent = money(s.pendT);
   root.querySelector('[data-kpends]').textContent = `${s.pendN} orden${s.pendN === 1 ? '' : 'es'} de este día`;
