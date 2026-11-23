@@ -1,6 +1,6 @@
 import { S } from './store.js';
 import { toast } from './ui/dom.js';
-import { esc, dmy, money, int, cap, fechaCorta, MESES, METODOS, analizarCierre, sumDays, pad, prodList, fmtCant, itemLabel } from './util.js';
+import { esc, dmy, money, int, cap, fechaCorta, MESES, METODOS, sumDays, pad, prodList, fmtCant, itemLabel } from './util.js';
 import { numOrden } from './workorder.js';
 
 /* ---------- modelo común para Excel e impresión ---------- */
@@ -14,7 +14,7 @@ function modelo(p) {
     const anul = v.anulada || v.estado === 'anulada';
     return {
       numero: numOrden(v.numero ?? v.numero_anulado), fecha: `${dmy(v.fecha)} ${v.hora}`, cliente: v.client_name || 'CONTADO',
-      operador: v.operador || '', anul, pago: pagoTxt(v),
+      operador: v.operador && v.operador !== 'Job Log' ? v.operador : '', anul, pago: pagoTxt(v),
       sub: anul ? null : v.subtotal_cents / 100, itbms: anul ? null : (v.itbms_cents || 0) / 100, total: anul ? null : v.total_cents / 100,
       lineas: v.items.map(it => ({ prod: prodName(it) + (it.extra ? ` (${it.extra})` : ''), tam: tamName(it), cant: it.cant, cantTxt: fmtCant(it.cant, it.unidad), importe: anul ? null : it.sub_cents / 100 })),
     };
@@ -24,16 +24,7 @@ function modelo(p) {
   const cobros = Object.keys(METODOS).map(k => [METODOS[k], s.met[k].n, s.met[k].t / 100]);
   const prods = prodList(s).map(x => [x.label, fmtCant(x.cant, x.unidad), x.monto / 100]);
   const maquinas = Object.entries(s.maq || {}).map(([k, x]) => [(S.settings.maquinas.find(m => m.id === k) || {}).nombre || k, x.color, x.bn]);
-  let cierre = null;
-  if (!p.multiDay) {
-    const c = p.closings[p.from], a = analizarCierre(c, s);
-    cierre = [];
-    if (a.maq != null) cierre.push(['Contador de la máquina', `${int(c.inicio)} → ${int(c.fin)} = ${int(a.maq)} págs`], ['Diferencia con lo cobrado', (a.dif > 0 ? '+' : '') + int(a.dif)]);
-    if (a.logColor != null) cierre.push(['Registros de máquinas (color)', int(a.logColor)], ['Diferencia con lo cobrado', (a.difLog > 0 ? '+' : '') + int(a.difLog)]);
-    if (a.difEf != null) cierre.push(['Efectivo en caja', money(c.efectivo_cents)], ['Diferencia de efectivo', `${a.difEf > 0 ? '+' : ''}${money(a.difEf)}`]);
-    if (c?.nota) cierre.push(['Nota', c.nota]);
-    if (!cierre.length) cierre = null;
-  }
+  const cierre = null;
   let dias = null;
   if (p.multiDay) {
     const days = p.days || {};

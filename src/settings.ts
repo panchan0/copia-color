@@ -42,6 +42,8 @@ export function normalize(d: any): Settings {
   const tasa = Number(d?.itbms?.tasa); if (Number.isFinite(tasa) && tasa > 0 && tasa <= 30) s.itbms.tasa = Math.round(tasa * 100) / 100;
   if (d?.empresa && typeof d.empresa === 'object') {
     for (const k of ['telefono', 'correo', 'direccion', 'ruc'] as const) if (typeof d.empresa[k] === 'string') s.empresa[k] = str(d.empresa[k], 120);
+    const logo = d.empresa.logo;
+    if (typeof logo === 'string' && logo.length <= 80_000 && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(logo)) s.empresa.logo = logo;
   }
   if (Array.isArray(d?.operadores)) s.operadores = [...new Set(d.operadores.map((x: unknown) => str(x, 60)).filter(Boolean))].slice(0, 50) as string[];
   if (Array.isArray(d?.maquinas)) {

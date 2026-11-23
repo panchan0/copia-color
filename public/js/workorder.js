@@ -13,9 +13,10 @@ function estado(v) {
   if (v.estado === 'pendiente') return { t: 'PENDIENTE DE PAGO', d: '' };
   return { t: 'PAGADA', d: `${METODOS[v.metodo] || ''} · ${v.pagada_fecha ? dmy(v.pagada_fecha) : ''} ${v.pagada_hora || ''}`.trim() };
 }
+const opTxt = v => (v.operador && v.operador !== 'Job Log' ? v.operador : '—');
 function empresa() {
   const e = S.settings?.empresa || {};
-  return { nombre: S.account.business, tel: e.telefono, correo: e.correo, dir: e.direccion, ruc: e.ruc };
+  return { nombre: S.account.business, tel: e.telefono, correo: e.correo, dir: e.direccion, ruc: e.ruc, logo: e.logo || '' };
 }
 
 /* ---------- impresión ---------- */
@@ -25,6 +26,7 @@ export function imprimirOrden(v) {
   box.innerHTML = `<div class="wo">
     <div class="wo-h">
       <div class="wo-emp">
+        ${e.logo ? `<img class="wo-logo" src="${esc(e.logo)}" alt="">` : ''}
         <div class="wo-neg">${esc(e.nombre)}</div>
         ${e.dir ? `<div>${esc(e.dir)}</div>` : ''}
         <div>${[e.tel && `Tel. ${esc(e.tel)}`, e.correo && esc(e.correo)].filter(Boolean).join(' · ')}</div>
@@ -35,7 +37,7 @@ export function imprimirOrden(v) {
         <table class="wo-meta">
           <tr><th>N.º de orden</th><td><b>${numDe(v)}</b></td></tr>
           <tr><th>Fecha</th><td>${dmy(v.fecha)} · ${esc(v.hora)}</td></tr>
-          <tr><th>Operador</th><td>${esc(v.operador || '—')}</td></tr>
+          <tr><th>Operador</th><td>${esc(opTxt(v))}</td></tr>
           <tr><th>Estado</th><td><b>${st.t}</b>${st.d ? `<br>${esc(st.d)}` : ''}</td></tr>
         </table>
       </div>
@@ -87,15 +89,23 @@ export async function descargarOrden(v) {
   const txt = (t, x, y, o = {}) => { doc.setFont('helvetica', o.b ? 'bold' : 'normal'); doc.setFontSize(o.s || 9.5); doc.setTextColor(...(o.c || [20, 20, 20])); doc.text(String(t ?? ''), x, y, o.a ? { align: o.a, maxWidth: o.w } : (o.w ? { maxWidth: o.w } : undefined)); };
 
   // Encabezado: empresa (izq.) y datos de la orden (der.)
-  let y = 18;
-  txt(e.nombre, L, y, { b: true, s: 15 });
+  let y = 18, ex = L;
+  if (e.logo) {
+    try {
+      const im = await new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = ko; i.src = e.logo; });
+      const h = 16, w = Math.min(40, h * im.width / im.height);
+      doc.addImage(e.logo, 'JPEG', L, y - 6, w, w * im.height / im.width);
+      ex = L + w + 4;
+    } catch { /* sin logo */ }
+  }
+  txt(e.nombre, ex, y, { b: true, s: 15 });
   let ey = y + 6;
-  if (e.dir) { txt(e.dir, L, ey); ey += 5; }
-  txt([e.tel && `Tel. ${e.tel}`, e.correo].filter(Boolean).join('  ·  '), L, ey); ey += 5;
-  if (e.ruc) { txt(`RUC ${e.ruc}`, L, ey); ey += 5; }
+  if (e.dir) { txt(e.dir, ex, ey); ey += 5; }
+  txt([e.tel && `Tel. ${e.tel}`, e.correo].filter(Boolean).join('  ·  '), ex, ey); ey += 5;
+  if (e.ruc) { txt(`RUC ${e.ruc}`, ex, ey); ey += 5; }
   const mx = R - 82, mw = 82;
   txt('ORDEN DE TRABAJO', R, y, { b: true, s: 13, a: 'right', c: [224, 25, 125] });
-  const meta = [['N.º de orden', numDe(v)], ['Fecha', `${dmy(v.fecha)} · ${v.hora}`], ['Operador', v.operador || '—'], ['Estado', st.t + (st.d ? ` · ${st.d}` : '')]];
+  const meta = [['N.º de orden', numDe(v)], ['Fecha', `${dmy(v.fecha)} · ${v.hora}`], ['Operador', opTxt(v)], ['Estado', st.t + (st.d ? ` · ${st.d}` : '')]];
   let my = y + 4;
   meta.forEach(([k, val], i) => {
     box(mx, my, 28, 7, [239, 236, 229]); box(mx + 28, my, mw - 28, 7);

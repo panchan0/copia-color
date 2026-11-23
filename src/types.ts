@@ -26,7 +26,7 @@ export interface Settings {
   diasSemana: number;  // días laborables por semana
   tz: string;
   itbms: { modo: 'incluido' | 'aparte' | 'no'; tasa: number };
-  empresa: { telefono: string; correo: string; direccion: string; ruc: string };
+  empresa: { telefono: string; correo: string; direccion: string; ruc: string; logo?: string };
   operadores: string[];
   maquinas: Maquina[];
 }

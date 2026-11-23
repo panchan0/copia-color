@@ -9,30 +9,31 @@ export function estadoTag(v) {
   return `<span class="tag m-${v.metodo}">${METODOS[v.metodo] || 'Pagada'}</span>`;
 }
 
-/** Tabla de órdenes (en celular se ve como tarjetas). */
+/** Tabla de órdenes (en celular se ve como lista compacta). */
 export function salesTable(sales, { anular = true, cobrar = true, pend = null, empty = 'Sin órdenes', loading = false, fecha = false, pago = false } = {}) {
   if (loading) return '<div class="empty">Cargando…</div>';
   if (!sales.length) return `<div class="empty">${empty}</div>`;
-  const det = v => v.items.map(it => `<div>${esc(fmtCant(it.cant, it.unidad))} × ${esc(itemLabel(it))}${it.extra ? ` <span class="muted">(${esc(it.extra)})</span>` : ''}</div>`).join('');
+  const det = v => v.items.map(it => `${esc(fmtCant(it.cant, it.unidad))} × ${esc(itemLabel(it))}${it.extra ? ` (${esc(it.extra)})` : ''}`).join('<br>');
+  const op = v => v.operador && v.operador !== 'Job Log' ? v.operador : '';
   return `<table class="stbl"><thead><tr>
-    <th>N°</th><th>${fecha ? 'Creada' : 'Hora'}</th><th class="dk">Cliente</th><th>Producto o servicio</th><th class="n">Total</th><th class="dk">Estado</th>${pago ? '<th class="dk">Cobrada</th>' : ''}<th class="dk">Operador</th><th></th></tr></thead><tbody>
+    <th>N°</th><th>${fecha ? 'Fecha' : 'Hora'}</th><th>Cliente</th><th>Producto o servicio</th><th>Estado</th>${pago ? '<th class="dk">Cobrada</th>' : ''}<th class="dk">Operador</th><th class="n">Total</th><th></th></tr></thead><tbody>
     ${sales.map(v => {
       const anul = v.anulada || v.estado === 'anulada';
       const acts = [
         `<button class="lnk ord" data-id="${esc(v.id)}">Orden</button>`,
         cobrar && v.estado === 'pendiente' ? `<button class="lnk cob" data-id="${esc(v.id)}">Cobrar</button>` : '',
-        cobrar && v.estado === 'pagada' && v.metodo === 'pordefinir' ? `<button class="lnk met" data-id="${esc(v.id)}">Poner método</button>` : '',
+        cobrar && v.estado === 'pagada' && v.metodo === 'pordefinir' ? `<button class="lnk met" data-id="${esc(v.id)}">Método</button>` : '',
         anular && !anul ? `<button class="lnk an" data-id="${esc(v.id)}">${pend === v.id ? '¿Anular?' : 'Anular'}</button>` : '',
       ].join('');
       return `<tr class="${anul ? 'void' : ''}">
       <td class="c-n num">${numTxt(v)}</td>
       <td class="c-h num">${fecha ? `${dmy(v.fecha).slice(0, 5)} ` : ''}${esc(v.hora)}</td>
-      <td class="dk c-cl">${v.client_name ? esc(v.client_name) : '<span class="muted">Contado</span>'}</td>
-      <td class="c-d"><span class="mb c-cl">${v.client_name ? esc(v.client_name) : 'Contado'}</span>${det(v)}<span class="mb">${estadoTag(v)}${v.operador ? ` <span class="muted">· ${esc(v.operador)}</span>` : ''}</span></td>
-      <td class="n num c-t"><b>${money(v.total_cents)}</b><small>ITBMS ${money(v.itbms_cents || 0)}</small></td>
-      <td class="dk">${estadoTag(v)}${v.origen ? ' <span class="tag t-log">Job Log</span>' : ''}</td>
+      <td class="c-cl">${v.client_name ? esc(v.client_name) : '<span class="muted">Contado</span>'}</td>
+      <td class="c-d"><div class="clamp">${det(v)}</div></td>
+      <td class="c-e">${estadoTag(v)}</td>
       ${pago ? `<td class="dk num muted">${v.pagada_fecha ? `${dmy(v.pagada_fecha).slice(0, 5)} ${esc(v.pagada_hora || '')}` : '—'}</td>` : ''}
-      <td class="dk muted">${esc(v.operador || '—')}</td>
+      <td class="dk muted">${esc(op(v) || '—')}</td>
+      <td class="n num c-t"><b>${money(v.total_cents)}</b></td>
       <td class="c-a">${acts}</td>
     </tr>`;
     }).join('')}</tbody></table>`;

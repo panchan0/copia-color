@@ -9,24 +9,27 @@ import * as caja from './views/caja.js';
 import * as reportes from './views/reportes.js';
 import * as ajustes from './views/ajustes.js';
 import * as ordenes from './views/ordenes.js';
-import * as maquinas from './views/maquinas.js';
 
-const VIEWS = { dia, caja, ordenes, reportes, maquinas, ajustes };
+const VIEWS = { dia, caja, ordenes, reportes, ajustes };
+const NAV = { caja: 'ordenes' };
 let mounted = false, vista = null;
 
 function go(v, push = true) {
+  if (v === 'maquinas') v = 'ajustes';
   if (!VIEWS[v]) v = 'dia';
   closeMenu();
   vista = v;
   $$('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + v));
-  $$('nav.tabs button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+  $$('nav.tabs button').forEach(b => b.classList.toggle('on', b.dataset.v === (NAV[v] || v)));
   if (push && location.hash !== '#' + v) history.replaceState(null, '', '#' + v);
   VIEWS[v].show();
   window.scrollTo(0, 0);
 }
 
 function paintAcct() {
-  $('#acct').innerHTML = S.account ? `<b>${esc(S.account.business)}</b>${esc(S.account.email)}` : '';
+  $('#acct').innerHTML = S.account ? esc(S.account.email) : '';
+  const logo = S.settings?.empresa?.logo;
+  $('#brand').innerHTML = S.account ? `${logo ? `<img src="${esc(logo)}" alt="">` : `<span class="ini">${esc((S.account.business || '?').trim().charAt(0).toUpperCase())}</span>`}<b>${esc(S.account.business)}</b>` : '';
 }
 
 async function enter() {

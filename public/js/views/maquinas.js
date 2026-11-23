@@ -22,10 +22,10 @@ const AYUDA = {
 export function mount(el) {
   root = el;
   root.innerHTML = `<div class="maqs" data-maqs></div>
-  <div class="card"><div class="label">Páginas a color importadas · últimos 31 días</div><div style="overflow-x:auto"><table class="dtable" data-tab></table></div></div>`;
+  <div class="card"><div class="label">Páginas a color · últimos 31 días</div><div class="scrollx"><table class="dtable mtab" data-tab></table></div></div>`;
   root.addEventListener('change', onFile);
   root.addEventListener('click', onClick);
-  on(what => { if (what === 'remote' && root.closest('.view.on')) load(); });
+  on(what => { if (what === 'remote' && root.closest('.ajp:not(.hide)')) load(); });
 }
 
 export function show() { load(); }
@@ -38,13 +38,12 @@ function paintMaqs() {
   root.querySelector('[data-maqs]').innerHTML = S.settings.maquinas.map(m => {
     const u = ultimoDia(m.id);
     return `<div class="card maq">
-      <div class="label" style="margin:0">Máquina</div><div class="maq-n">${esc(m.nombre)}</div>
-      <p class="sub-note">${u ? `Último trabajo importado: <b>${dmy(u)}</b>` : 'Todavía no se ha importado nada.'}</p>
+      <div class="row between wrap"><div class="maq-n">${esc(m.nombre)}</div><span class="muted">${u ? `Último: ${dmy(u)}` : 'Sin importar'}</span></div>
       <div class="row wrap improw">
         <div class="field"><label>Importar desde</label><input class="input" type="date" data-desde="${m.id}" value="${desdeDefault(m.id)}" max="${today()}"></div>
-        <label class="btn big-imp${ocupado ? ' disabled' : ''}">${ICON.down}${ocupado ? 'Importando…' : 'Importar registro'}<input type="file" data-maq="${m.id}" hidden ${ocupado ? 'disabled' : ''}></label>
+        <label class="btn big-imp${ocupado ? ' disabled' : ''}">${ICON.down}${ocupado ? 'Importando…' : 'Importar'}<input type="file" data-maq="${m.id}" hidden ${ocupado ? 'disabled' : ''}></label>
       </div>
-      <p class="sub-note ayuda">${AYUDA[m.id] || ''}</p>
+      ${AYUDA[m.id] ? `<details class="ayuda"><summary>Cómo exportar el registro</summary><p>${AYUDA[m.id]}</p></details>` : ''}
       <div class="impres" data-res="${m.id}">${resultado[m.id] || ''}</div>
     </div>`;
   }).join('');
@@ -56,10 +55,10 @@ async function load() {
   paintMaqs();
   const ms = S.settings.maquinas;
   const fechas = Object.keys(dias).filter(f => f >= addDays(t, -30) && Object.keys(dias[f].maq || {}).length).sort().reverse();
-  root.querySelector('[data-tab]').innerHTML = fechas.length ? `<thead><tr><th>Día</th>${ms.map(m => `<th>${esc(m.nombre)}</th>`).join('')}<th></th></tr></thead><tbody>
+  root.querySelector('[data-tab]').innerHTML = fechas.length ? `<thead><tr><th>Día</th>${ms.map(m => `<th>${esc(m.nombre.split(' ')[0])}</th>`).join('')}<th></th></tr></thead><tbody>
     ${fechas.map(f => `<tr><td>${esc(cap(fechaCorta(f)))}</td>${ms.map(m => { const x = dias[f].maq[m.id]; return `<td class="num"><b>${x ? int(x.color) : '—'}</b></td>`; }).join('')}
-      <td style="text-align:right">${ms.filter(m => dias[f].maq[m.id]).map(m => `<button class="lnk an" data-del="${m.id}" data-f="${f}">Borrar conteo ${esc(m.nombre.split(' ')[0])}</button>`).join('')}</td></tr>`).join('')}</tbody>`
-    : '<tbody><tr><td class="empty">Todavía no hay registros importados</td></tr></tbody>';
+      <td style="text-align:right">${ms.filter(m => dias[f].maq[m.id]).map(m => `<button class="lnk an" data-del="${m.id}" data-f="${f}">Borrar${ms.filter(k => dias[f].maq[k.id]).length > 1 ? ' ' + esc(m.nombre.split(' ')[0]) : ''}</button>`).join('')}</td></tr>`).join('')}</tbody>`
+    : '<tbody><tr><td class="empty">Sin registros</td></tr></tbody>';
 }
 
 async function onFile(e) {
@@ -101,7 +100,7 @@ async function onFile(e) {
     res.innerHTML = `<div class="diff ok">Del ${dmy(desde)} al ${dmy(today())}: <b>${int(pags)} páginas a color</b> en ${int(conteo.filas.length)} trabajos OK (${diasN} día${diasN === 1 ? '' : 's'}).<br>
       <b>${creadas} órdenes nuevas</b> creadas como pendientes de cobro${repetidas ? ` · ${repetidas} ya estaban` : ''}${nuevosJobs < conteo.filas.length ? ` · ${int(conteo.filas.length - nuevosJobs)} trabajos ya importados antes` : ''}.
       ${sinPrecio ? `<br>${sinPrecio} orden(es) no se crearon porque falta un precio en Ajustes.` : ''}</div>
-      ${creadas ? '<p class="sub-note">Cóbralas en <b>Órdenes → Pendientes</b>; quedan con la fecha del trabajo.</p>' : ''}`;
+`;
     toast(`${creadas} órdenes creadas · ${int(pags)} páginas a color`);
     emit('sale'); syncNow();
   } catch (err) {

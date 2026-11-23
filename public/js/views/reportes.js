@@ -3,7 +3,7 @@ import { S, today, on } from '../store.js';
 import { toast, ICON } from '../ui/dom.js';
 import { exportMenu } from '../ui/pickers.js';
 import { exportExcel, printReport } from '../export.js';
-import { esc, money, money0, int, addDays, addMonths, startOfWeek, startOfMonth, endOfMonth, parseD, MESES, MES3, DIAS3, cap, sumDays, emptyDay, analizarCierre, METODOS, fechaCorta, dayFromSummary, prodList, fmtCant } from '../util.js';
+import { esc, money, money0, int, addDays, addMonths, startOfWeek, startOfMonth, endOfMonth, parseD, MESES, MES3, DIAS3, cap, sumDays, emptyDay, METODOS, fechaCorta, dayFromSummary, prodList, fmtCant } from '../util.js';
 
 let root, modo = 'semana', ref = null, data = null, loading = false, reqId = 0, goDia = () => {};
 export const setGoDia = f => { goDia = f; };
@@ -50,13 +50,13 @@ export function mount(el) {
   ref = today();
   root.innerHTML = `
   <div class="toolbar">
-    <div class="seg" data-modo style="min-width:270px"><button data-m="semana">Semana</button><button data-m="mes">Mes</button><button data-m="anio">Año</button></div>
+    <div class="seg" data-modo><button data-m="semana">Semana</button><button data-m="mes">Mes</button><button data-m="anio">Año</button></div>
     <button class="iconbtn" data-prev aria-label="Anterior">${ICON.left}</button>
-    <div class="datebtn" style="cursor:default" data-lbl></div>
+    <button class="datebtn" data-lbl></button>
     <button class="iconbtn" data-next aria-label="Siguiente">${ICON.right}</button>
     <button class="btn ghost sm" data-hoy>Actual</button>
     <div class="spacer"></div>
-    <button class="btn line" data-exp>${ICON.down}Descargar / Imprimir</button>
+    <button class="btn line expb" data-exp aria-label="Descargar o imprimir">${ICON.down}<span>Descargar / Imprimir</span></button>
   </div>
   <div class="lay-rep">
     <div class="card r-meta">
@@ -65,7 +65,7 @@ export function mount(el) {
         <div class="num" style="color:var(--muted);font-weight:600" data-meta></div>
       </div>
       <div class="bar"><i data-bar style="width:0"></i></div>
-      <div class="sub-note" data-pct></div>
+      <div class="s" data-pct></div>
     </div>
     <div class="kpis" data-kpis></div>
     <div class="card r-chart"><div class="label">Ventas por <span data-unit>día</span></div><div class="chart" data-chart></div><div class="axis" data-axis></div></div>
@@ -77,6 +77,7 @@ export function mount(el) {
   root.querySelector('[data-prev]').onclick = () => mover(-1);
   root.querySelector('[data-next]').onclick = () => mover(1);
   root.querySelector('[data-hoy]').onclick = () => { ref = today(); load(); };
+  root.querySelector('[data-lbl]').onclick = () => { ref = today(); load(); };
   root.querySelector('[data-tab]').addEventListener('click', e => {
     const tr = e.target.closest('tr[data-k]'); if (!tr) return;
     if (modo === 'anio') { modo = 'mes'; ref = tr.dataset.k + '-01'; load(); } else goDia(tr.dataset.k);
@@ -125,7 +126,7 @@ function buckets() {
     });
   }
   const out = [];
-  for (let f = from; f <= to; f = addDays(f, 1)) out.push({ k: f, label: modo === 'semana' ? DIAS3[parseD(f).getUTCDay()] : String(parseD(f).getUTCDate()), s: days[f] || emptyDay(), closing: data?.closings?.[f] });
+  for (let f = from; f <= to; f = addDays(f, 1)) out.push({ k: f, label: modo === 'semana' ? DIAS3[parseD(f).getUTCDay()] : String(parseD(f).getUTCDate()), s: days[f] || emptyDay() });
   return out;
 }
 
@@ -138,7 +139,7 @@ function paint() {
   const diasV = Object.values(days).filter(d => d.n > 0).length;
   const prom = diasV ? s.cobrado / diasV : 0;
 
-  root.querySelector('[data-total]').textContent = loading ? '…' : money0(s.cobrado);
+  root.querySelector('[data-total]').textContent = money0(loading ? 0 : s.cobrado);
   root.querySelector('[data-meta]').textContent = `Meta ${money0(meta)}`;
   const pct = meta ? s.cobrado / meta * 100 : 0;
   root.querySelector('[data-bar]').style.width = Math.min(100, pct) + '%';
@@ -149,8 +150,8 @@ function paint() {
     ['Promedio por día', money0(prom), `${diasV} día${diasV === 1 ? '' : 's'} con ventas`],
     actual ? ['Proyección', money0(prom * lab), `a este ritmo, ${lab} días`] : ['Resultado', money0(s.cobrado), s.cobrado >= meta ? 'meta cumplida' : `faltaron ${money0(meta - s.cobrado)}`],
     ['Páginas a color', int(s.colorPags), `B/N ${int(s.bnPags)}`],
-    actual ? ['Faltan por día', falta ? money0(falta / rest) : '$0', falta ? `${rest} días restantes` : 'meta alcanzada'] : ['Ventas', int(s.n), 'tickets cobrados'],
-    ['Por cobrar', money0(s.pendT), `${int(s.pendN)} órdenes pendientes`],
+    actual ? ['Faltan por día', falta ? money0(falta / rest) : '$0', falta ? `${rest} días restantes` : 'meta alcanzada'] : ['Ventas', int(s.n), ''],
+    ['Por cobrar', money0(s.pendT), `${int(s.pendN)} órdenes`],
   ];
   root.querySelector('[data-kpis]').innerHTML = k.map(([l, v, sub]) => `<div class="kpi"><div class="label" style="margin:0">${l}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`).join('');
 
@@ -172,22 +173,17 @@ function paint() {
     <tr class="tot"><td>Total (sin ITBMS)</td><td></td><td class="num">${money(prods.reduce((a2, p) => a2 + p.monto, 0))}</td></tr></tbody></table>` : '<div class="empty">Sin órdenes</div>';
   // tabla
   root.querySelector('[data-tlabel]').textContent = modo === 'anio' ? 'Detalle por mes' : 'Detalle por día';
-  const rows = b.filter(x => x.s.n || x.s.cobrado || x.closing);
+  const rows = b.filter(x => x.s.n || x.s.cobrado);
   const tab = root.querySelector('[data-tab]');
   if (loading) { tab.innerHTML = '<tbody><tr><td class="empty">Cargando…</td></tr></tbody>'; return; }
   if (!rows.length) { tab.innerHTML = '<tbody><tr><td class="empty">Sin ventas en este periodo</td></tr></tbody>'; return; }
-  tab.innerHTML = `<thead><tr><th>${modo === 'anio' ? 'Mes' : 'Día'}</th><th>Órdenes</th><th>Color</th><th>Efectivo</th><th>Tarjeta</th><th>Yappy</th><th>Cobrado</th>${modo === 'anio' ? '<th>Días</th>' : '<th>Dif. máquina</th>'}</tr></thead><tbody>
+  tab.innerHTML = `<thead><tr><th>${modo === 'anio' ? 'Mes' : 'Día'}</th><th>Órdenes</th><th>Color</th><th class="dk">Efectivo</th><th class="dk">Tarjeta</th><th class="dk">Yappy</th><th>Cobrado</th>${modo === 'anio' ? '<th class="dk">Días</th>' : ''}</tr></thead><tbody>
   ${rows.slice().reverse().map(x => {
-    let last;
-    if (modo === 'anio') last = `<td class="num">${x.days}</td>`;
-    else {
-      const a = analizarCierre(x.closing, x.s);
-      last = `<td class="num">${a.maq != null ? `<b style="color:${a.dif === 0 ? 'var(--ok)' : a.dif > 0 ? 'var(--bad)' : 'var(--warn)'}">${a.dif > 0 ? '+' : ''}${int(a.dif)}</b>` : '—'}</td>`;
-    }
+    const last = modo === 'anio' ? `<td class="num dk">${x.days}</td>` : '';
     const name = modo === 'anio' ? cap(MESES[Number(x.k.slice(5, 7)) - 1]) : cap(fechaCorta(x.k));
-    return `<tr data-k="${x.k}"><td>${esc(name)}</td><td class="num">${int(x.s.n)}</td><td class="num">${int(x.s.colorPags)}</td><td class="num">${money(x.s.met.efectivo.t)}</td><td class="num">${money(x.s.met.tarjeta.t)}</td><td class="num">${money(x.s.met.yappy.t)}</td><td class="num"><b>${money(x.s.cobrado)}</b></td>${last}</tr>`;
+    return `<tr data-k="${x.k}"><td>${esc(name)}</td><td class="num">${int(x.s.n)}</td><td class="num">${int(x.s.colorPags)}</td><td class="num dk">${money(x.s.met.efectivo.t)}</td><td class="num dk">${money(x.s.met.tarjeta.t)}</td><td class="num dk">${money(x.s.met.yappy.t)}</td><td class="num"><b>${money(x.s.cobrado)}</b></td>${last}</tr>`;
   }).join('')}
-  <tr class="tot"><td>Total</td><td class="num">${int(s.n)}</td><td class="num">${int(s.colorPags)}</td><td class="num">${money(s.met.efectivo.t)}</td><td class="num">${money(s.met.tarjeta.t)}</td><td class="num">${money(s.met.yappy.t)}</td><td class="num">${money(s.cobrado)}</td><td></td></tr></tbody>`;
+  <tr class="tot"><td>Total</td><td class="num">${int(s.n)}</td><td class="num">${int(s.colorPags)}</td><td class="num dk">${money(s.met.efectivo.t)}</td><td class="num dk">${money(s.met.tarjeta.t)}</td><td class="num dk">${money(s.met.yappy.t)}</td><td class="num">${money(s.cobrado)}</td>${modo === 'anio' ? '<td class="dk"></td>' : ''}</tr></tbody>`;
 }
 
 async function exportar(kind) {
@@ -201,7 +197,7 @@ async function exportar(kind) {
       titulo: modo === 'semana' ? 'Informe semanal' : modo === 'mes' ? 'Informe mensual' : 'Informe anual',
       periodo: modo === 'semana' ? `Semana ${l.sub}` : modo === 'mes' ? (l.sub || l.main) : from.slice(0, 4),
       from, to, multiDay: true, porMes: modo === 'anio',
-      sales: r.sales, stats: sumDays(Object.values(sm.days || {}).map(dayFromSummary)), closings: sm.closings || {}, days: Object.fromEntries(Object.entries(sm.days || {}).map(([k, v]) => [k, dayFromSummary(v)])), meta,
+      sales: r.sales, stats: sumDays(Object.values(sm.days || {}).map(dayFromSummary)), closings: {}, days: Object.fromEntries(Object.entries(sm.days || {}).map(([k, v]) => [k, dayFromSummary(v)])), meta,
       archivo: `Ventas_${from}_a_${to}`,
     };
     if (kind === 'xls') await exportExcel(payload); else printReport(payload);
