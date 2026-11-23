@@ -4,8 +4,7 @@ import { toast, ICON } from '../ui/dom.js';
 import { openCalendar } from '../ui/calendar.js';
 import { exportMenu } from '../ui/pickers.js';
 import { exportExcel, printReport } from '../export.js';
-import { salesTable, bindOrden } from '../ui/salestable.js';
-import { bindCobrar, bindMetodo } from '../ui/cobrar.js';
+import { salesTable, bindAbrir } from '../ui/salestable.js';
 import { esc, money, int, addDays, fechaLarga, cap, statsFromSales, METODOS, dayFromSummary } from '../util.js';
 
 let root, fecha = null, sales = [], cobrosPrev = [], maq = {}, loading = false, reqId = 0, anularPend = null;
@@ -61,10 +60,7 @@ export function mount(el) {
   });
   exportMenu(root.querySelector('[data-exp]'), { onExcel: () => exportar('xls'), onPrint: () => exportar('print') });
   const list = root.querySelector('[data-list]');
-  list.addEventListener('click', onAnular);
-  bindOrden(list, id => sales.find(v => v.id === id));
-  bindCobrar(list, () => load(true));
-  bindMetodo(list, () => load(true));
+  bindAbrir(list);
   on(what => { if (what === 'remote' || what === 'sale') load(true); });
   if (!fecha) fecha = today();
 }
@@ -120,19 +116,11 @@ function paint() {
   }
   root.querySelector('[data-vtitle]').textContent = s.n ? `Órdenes · ${s.n}` : 'Órdenes';
   root.querySelector('[data-vtot]').textContent = s.n ? money(s.total) : '';
-  root.querySelector('[data-list]').innerHTML = salesTable(sales.slice().reverse(), { pend: anularPend, loading, pago: true });
+  root.querySelector('[data-list]').innerHTML = salesTable(sales.filter(v => !v.anulada).reverse(), { loading, pago: true });
   const prevT = cobrosPrev.reduce((a, v) => a + v.total_cents, 0);
   root.querySelector('[data-prev-cob]').textContent = cobrosPrev.length ? `+ ${cobrosPrev.length} cobro${cobrosPrev.length === 1 ? '' : 's'} de días anteriores · ${money(prevT)}` : '';
 }
 
-async function onAnular(e) {
-  const b = e.target.closest('.an'); if (!b) return;
-  const id = b.dataset.id;
-  if (anularPend !== id) { anularPend = id; paint(); setTimeout(() => { if (anularPend === id) { anularPend = null; paint(); } }, 4000); return; }
-  anularPend = null;
-  try { await api(`/api/sales/${id}/void`, { method: 'POST', body: {} }); toast('Orden anulada'); emit('sale'); syncNow(); load(true); }
-  catch (err) { toast(err.message, true); }
-}
 
 function exportar(kind) {
   if (loading) return toast('Espera a que carguen los datos');

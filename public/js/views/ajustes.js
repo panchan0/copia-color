@@ -3,6 +3,26 @@ import { S, on, loadMe, syncNow } from '../store.js';
 import { $, toast, dialog, ICON } from '../ui/dom.js';
 import { nuevoCliente, listPicker } from '../ui/pickers.js';
 import * as maquinas from './maquinas.js';
+import { salesTable, bindAbrir } from '../ui/salestable.js';
+import { today } from '../store.js';
+import { money, int, MESES, cap, startOfMonth, endOfMonth, addMonths, parseD } from '../util.js';
+
+let anMes = null, anReq = 0;
+async function loadAnuladas() {
+  anMes = anMes || startOfMonth(today());
+  const d = parseD(anMes), id = ++anReq;
+  root.querySelector('[data-ames]').textContent = `${cap(MESES[d.getUTCMonth()])} ${d.getUTCFullYear()}`;
+  root.querySelector('[data-anext]').disabled = anMes >= startOfMonth(today());
+  const list = root.querySelector('[data-alist]');
+  list.innerHTML = salesTable([], { loading: true });
+  try {
+    const r = await api(`/api/orders?estado=anulada&from=${anMes}&to=${endOfMonth(anMes)}`);
+    if (id !== anReq) return;
+    root.querySelector('[data-an1]').textContent = `${int(r.sales.length)} ${r.sales.length === 1 ? 'orden' : 'órdenes'}`;
+    root.querySelector('[data-an2]').textContent = money(r.sales.reduce((a, v) => a + v.total_cents, 0));
+    list.innerHTML = salesTable(r.sales, { fecha: true, empty: 'Sin órdenes anuladas en este mes' });
+  } catch (e) { if (id === anReq) { list.innerHTML = ''; toast(e.message, true); } }
+}
 import { esc, centsToInput, toCents, CATS } from '../util.js';
 
 let root, onLogout = () => {}, catAbierta = 'color', pagina = 'home', paintCat = () => {};
@@ -24,6 +44,7 @@ export function mount(el) {
       ${fila('operadores', 'Operadores', '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>')}
       ${fila('meta', 'Meta e impuesto', '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>')}
       ${fila('importar', 'Importar registros de máquinas', '<svg viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 17v4h10v-4"/></svg>')}
+      ${fila('anuladas', 'Órdenes anuladas', '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg>')}
       ${fila('cuenta', 'Cuenta y seguridad', '<svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>')}
     </div>
   </div>
@@ -62,12 +83,17 @@ export function mount(el) {
       <button class="btn" style="margin-top:14px" data-save>Guardar</button>
     </div>`)}
   ${sub('importar', 'Importar registros de máquinas', '<div data-maq></div>')}
+  ${sub('anuladas', 'Órdenes anuladas', `<div class="toolbar"><button class="iconbtn" data-aprev aria-label="Mes anterior">${ICON.left}</button><div class="datebtn" data-ames></div><button class="iconbtn" data-anext aria-label="Mes siguiente">${ICON.right}</button></div>
+    <div class="card"><div class="ohead"><span data-an1></span><b class="num" data-an2></b></div><div data-alist></div></div>`)}
   ${sub('cuenta', 'Cuenta y seguridad', `<div class="card setlist">
       <button class="srow" data-pwd><span class="st">Cambiar contraseña</span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
       <button class="srow" data-out><span class="st">Cerrar sesión</span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
       <button class="srow danger" data-outall><span class="st">Cerrar sesión en todos los dispositivos</span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
     </div>`)}`;
   maquinas.mount(root.querySelector('[data-maq]'));
+  bindAbrir(root.querySelector('[data-alist]'));
+  root.querySelector('[data-aprev]').onclick = () => { anMes = addMonths(anMes, -1); loadAnuladas(); };
+  root.querySelector('[data-anext]').onclick = () => { anMes = addMonths(anMes, 1); loadAnuladas(); };
   root.addEventListener('click', e => {
     const g = e.target.closest('[data-go]'); if (g) return ir(g.dataset.go);
     if (e.target.closest('[data-home]')) ir('home');
@@ -95,7 +121,7 @@ export function mount(el) {
 }
 
 let catalogo = null;
-export function show() { ir('home'); }
+export function show(sub) { ir(sub && root.querySelector(`.ajp[data-p="${sub}"]`) ? sub : 'home'); }
 
 function ir(p) {
   pagina = p;
@@ -104,6 +130,7 @@ function ir(p) {
   if (p === 'clientes') paintClientes();
   if (p === 'operadores') paintOps();
   if (p === 'importar') maquinas.show();
+  if (p === 'anuladas') loadAnuladas();
   window.scrollTo(0, 0);
 }
 

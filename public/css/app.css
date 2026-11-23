@@ -752,3 +752,76 @@ details.ayuda p{margin-top:6px;line-height:1.45}
 }
 .stbl .clamp{-webkit-line-clamp:3}
 .tamq{margin-bottom:0}
+
+/* =================== v7 · celeste, bordes redondeados, transiciones, vidrio =================== */
+:root{--acc:#0a8fd6;--acc2:#e3f3fc;--link:#0a7cc0;--r:12px;--rin:9px}
+.card,.kpi{border-radius:var(--r)}
+.input,.picker,.datebtn,.iconbtn,.btn,.chip,.qty button,.qty input,.quick button,.tline .x{border-radius:var(--rin)}
+.btn.sm{border-radius:8px}
+.tag,.pill{border-radius:20px;padding:2px 8px}
+.menu{border-radius:14px}
+.menu .it{border-radius:9px}
+.dialog{border-radius:18px 18px 0 0}
+.toast{border-radius:12px}
+.input:focus,.picker.open{border-color:var(--acc);box-shadow:0 0 0 3px rgba(10,143,214,.16)}
+.picker.m-yappy.has,.picker.m-efectivo.has,.picker.m-tarjeta.has{border-radius:var(--rin)}
+
+/* íconos circulares y más grandes en Ajustes */
+.sico{width:38px;height:38px;border-radius:50%}
+.sico svg{width:20px;height:20px}
+.srow{padding:12px 16px;gap:14px}
+.alogo{border-radius:50%;width:58px;height:58px}
+.alogo.big{width:80px;height:80px}
+nav.tabs .brand img,nav.tabs .brand .ini{border-radius:50%}
+
+/* vidrio esmerilado */
+.menu{background:rgba(255,255,255,.78);-webkit-backdrop-filter:blur(18px) saturate(180%);backdrop-filter:blur(18px) saturate(180%);border-color:rgba(200,206,214,.7)}
+.overlay{background:rgba(20,28,38,.28);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.dialog{background:rgba(255,255,255,.9);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%)}
+nav.tabs{background:rgba(255,255,255,.82);-webkit-backdrop-filter:blur(18px) saturate(180%);backdrop-filter:blur(18px) saturate(180%)}
+.toast{background:rgba(22,28,36,.86);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+.toast.err{background:rgba(200,50,50,.9)}
+
+/* transiciones */
+@keyframes vin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes sin{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+@keyframes pop{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes up{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.view.on{animation:vin .22s ease-out}
+#v-caja.on,#v-orden.on,.ajp:not(.hide):not([data-p=home]){animation:sin .24s ease-out}
+.menu{animation:pop .16s ease-out;transform-origin:top}
+.overlay{animation:fade .18s ease-out}
+.dialog{animation:up .24s cubic-bezier(.2,.8,.2,1)}
+.btn,.iconbtn,.picker,.srow,.lnk,nav.tabs button,.stbl tr.rowlink,.chip{transition:background-color .15s,border-color .15s,color .15s,transform .1s,box-shadow .15s,filter .15s}
+.btn:active:not(:disabled),.iconbtn:active:not(:disabled),.srow:active,nav.tabs button:active{transform:scale(.97)}
+.bar i{transition:width .5s cubic-bezier(.2,.8,.2,1)}
+.toast{transition:opacity .25s,transform .25s cubic-bezier(.2,.8,.2,1)}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* filas que abren la orden */
+.stbl tr.rowlink{cursor:pointer}
+.stbl .c-a .chev{width:18px;height:18px;stroke:#a3aab2;fill:none;stroke-width:2;display:block;margin-left:auto}
+.stbl tr.rowlink:active td{background:var(--acc2)}
+@media (max-width:899px){
+  .stbl tr{grid-template-areas:"n cl t" "d d a" "h e a";border-radius:10px}
+  .stbl .c-a{align-self:center;margin-right:0}
+}
+
+/* vista detallada de la orden */
+.odet{max-width:760px}
+.ohero .big{font-size:32px;margin:4px 0 10px}
+.ohero.void .big{text-decoration:line-through;color:var(--muted)}
+.kvs{display:flex;flex-direction:column}
+.kv{display:flex;justify-content:space-between;gap:16px;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+.kv:first-child{border-top:0}
+.kv span{color:var(--muted)}
+.kv b{font-weight:600;text-align:right;min-width:0;overflow-wrap:anywhere}
+.oit{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px}
+.oit .q{font-weight:700;min-width:38px}
+.oit .d{flex:1;min-width:0}
+.oit .d small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.oit b{white-space:nowrap}
+.oacts{display:flex;flex-direction:column;gap:10px}
+.oacts .grid2{gap:10px}
+.btn.danger.armed{background:#fdecec;border-color:#e9a3a3}

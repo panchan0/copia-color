@@ -2,12 +2,11 @@ import { api } from '../api.js';
 import { today, on, syncNow, emit } from '../store.js';
 import { toast, ICON } from '../ui/dom.js';
 import { listPicker } from '../ui/pickers.js';
-import { salesTable, bindOrden, numTxt } from '../ui/salestable.js';
-import { bindCobrar, bindMetodo } from '../ui/cobrar.js';
+import { salesTable, bindAbrir, numTxt } from '../ui/salestable.js';
 import { esc, money, int, MESES, cap, startOfMonth, endOfMonth, addMonths, parseD } from '../util.js';
 
 let paintEst = () => {}, root, estado = 'pendiente', mes = null, lista = [], loading = false, reqId = 0, anularPend = null;
-const ESTS = { pendiente: 'Pendientes', pordefinir: 'Por definir', pagada: 'Pagadas', anulada: 'Anuladas', todas: 'Todas' };
+const ESTS = { pendiente: 'Pendientes', pordefinir: 'Por definir', pagada: 'Pagadas', todas: 'Todas' };
 
 export function mount(el) {
   root = el;
@@ -37,10 +36,7 @@ export function mount(el) {
   root.querySelector('[data-q]').addEventListener('input', paint);
   root.querySelector('[data-cobrartodas]').addEventListener('click', cobrarTodas);
   const list = root.querySelector('[data-list]');
-  bindOrden(list, id => lista.find(v => v.id === id));
-  bindCobrar(list, () => load(true));
-  bindMetodo(list, () => load(true));
-  list.addEventListener('click', onAnular);
+  bindAbrir(list);
   on(what => { if ((what === 'remote' || what === 'sale') && root.closest('.view.on')) load(true); });
 }
 
@@ -54,7 +50,7 @@ async function load(silent = false) {
     const q = estado === 'pendiente' ? 'estado=pendiente' : estado === 'pordefinir' ? 'estado=pordefinir' : `estado=${estado}&from=${mes}&to=${endOfMonth(mes)}`;
     const r = await api(`/api/orders?${q}`);
     if (id !== reqId) return;
-    lista = r.sales; loading = false; paint();
+    lista = r.sales.filter(v => !(v.anulada || v.estado === 'anulada')); loading = false; paint();
   } catch (e) { if (id === reqId) { loading = false; paint(); if (e.status !== 401) toast(e.message, true); } }
 }
 
@@ -80,7 +76,7 @@ function paint() {
   root.querySelector('[data-k2]').textContent = loading ? '' : money(total);
   root.querySelector('[data-bulk]').classList.toggle('hide', estado !== 'pendiente' || !vis.length);
   root.querySelector('[data-list]').innerHTML = salesTable(vis, {
-    loading, fecha: true, pago: estado !== 'pendiente', pend: anularPend,
+    loading, fecha: true, pago: estado !== 'pendiente',
     empty: estado === 'pendiente' ? 'No hay órdenes pendientes por cobrar' : 'Sin órdenes en este mes',
   });
 }
@@ -98,12 +94,4 @@ async function cobrarTodas(e) {
   b.disabled = false; b.classList.remove('armed'); b.textContent = 'Cobrar todas sin método';
 }
 
-async function onAnular(e) {
-  const b = e.target.closest('.an'); if (!b) return;
-  const id = b.dataset.id;
-  if (anularPend !== id) { anularPend = id; paint(); setTimeout(() => { if (anularPend === id) { anularPend = null; paint(); } }, 4000); return; }
-  anularPend = null;
-  try { await api(`/api/sales/${id}/void`, { method: 'POST', body: {} }); toast('Orden anulada'); emit('sale'); syncNow(); load(true); }
-  catch (err) { toast(err.message, true); }
-}
 export { esc };

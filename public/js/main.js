@@ -9,20 +9,29 @@ import * as caja from './views/caja.js';
 import * as reportes from './views/reportes.js';
 import * as ajustes from './views/ajustes.js';
 import * as ordenes from './views/ordenes.js';
+import * as orden from './views/orden.js';
 
-const VIEWS = { dia, caja, ordenes, reportes, ajustes };
-const NAV = { caja: 'ordenes' };
-let mounted = false, vista = null;
+const VIEWS = { dia, caja, ordenes, orden, reportes, ajustes };
+const NAV = { caja: 'ordenes', orden: 'ordenes' };
+let mounted = false, vista = null, navSel = 'dia';
 
 function go(v, push = true) {
   if (v === 'maquinas') v = 'ajustes';
+  if (v.startsWith('orden=')) {
+    const from = vista && vista !== 'orden' ? (vista === 'ajustes' ? '#ajustes=anuladas' : '#' + vista) : null;
+    orden.setOrden(decodeURIComponent(v.slice(6)), from);
+    v = 'orden'; push = false;
+  }
+  let sub = null;
+  if (v.startsWith('ajustes=')) { sub = v.slice(8); v = 'ajustes'; push = false; }
   if (!VIEWS[v]) v = 'dia';
   closeMenu();
   vista = v;
   $$('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + v));
-  $$('nav.tabs button').forEach(b => b.classList.toggle('on', b.dataset.v === (NAV[v] || v)));
+  if (v !== 'orden') navSel = NAV[v] || v;
+  $$('nav.tabs button').forEach(b => b.classList.toggle('on', b.dataset.v === navSel));
   if (push && location.hash !== '#' + v) history.replaceState(null, '', '#' + v);
-  VIEWS[v].show();
+  VIEWS[v].show(sub);
   window.scrollTo(0, 0);
 }
 
