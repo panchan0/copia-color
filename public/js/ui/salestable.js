@@ -11,7 +11,7 @@ export function estadoTag(v) {
 }
 
 /** Tabla de órdenes (en celular se ve como lista compacta). */
-export function salesTable(sales, { empty = 'Sin órdenes', loading = false, fecha = false, pago = false } = {}) {
+export function salesTable(sales, { sel = null, empty = 'Sin órdenes', loading = false, fecha = false, pago = false } = {}) {
   if (loading) return '<div class="empty">Cargando…</div>';
   if (!sales.length) return `<div class="empty">${empty}</div>`;
   const det = v => v.items.map(it => `${esc(fmtCant(it.cant, it.unidad))} × ${esc(itemLabel(it))}${it.extra ? ` (${esc(it.extra)})` : ''}`).join('<br>');
@@ -20,7 +20,7 @@ export function salesTable(sales, { empty = 'Sin órdenes', loading = false, fec
     <th>N°</th><th>${fecha ? 'Fecha' : 'Hora'}</th><th>Cliente</th><th>Producto o servicio</th><th>Estado</th>${pago ? '<th class="dk">Cobrada</th>' : ''}<th class="dk">Operador</th><th class="n">Total</th><th></th></tr></thead><tbody>
     ${sales.map(v => {
       const anul = v.anulada || v.estado === 'anulada';
-      return `<tr class="rowlink${anul ? ' void' : ''}" data-id="${esc(v.id)}" tabindex="0">
+      return `<tr class="rowlink${anul ? ' void' : ''}${sel ? ' selmode' : ''}${sel?.has(v.id) ? ' picked' : ''}" data-id="${esc(v.id)}" tabindex="0">
       <td class="c-n num">${numTxt(v)}</td>
       <td class="c-h num">${fecha ? `${dmy(v.fecha).slice(0, 5)} ` : ''}${esc(v.hora)}</td>
       <td class="c-cl">${v.client_name ? esc(v.client_name) : '<span class="muted">Contado</span>'}</td>
@@ -29,7 +29,7 @@ export function salesTable(sales, { empty = 'Sin órdenes', loading = false, fec
       ${pago ? `<td class="dk num muted">${v.pagada_fecha ? `${dmy(v.pagada_fecha).slice(0, 5)} ${esc(v.pagada_hora || '')}` : '—'}</td>` : ''}
       <td class="dk muted">${esc(op(v) || '—')}</td>
       <td class="n num c-t"><b>${money(v.total_cents)}</b></td>
-      <td class="c-a"><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></td>
+      <td class="c-a">${sel ? `<span class="tick">${sel.has(v.id) ? '✓' : ''}</span>` : '<svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>'}</td>
     </tr>`;
     }).join('')}</tbody></table>`;
 }

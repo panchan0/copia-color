@@ -1,6 +1,6 @@
 import { api } from '../api.js';
 import { today, on, syncNow, emit } from '../store.js';
-import { toast, ICON } from '../ui/dom.js';
+import { toast, ICON, choice } from '../ui/dom.js';
 import { listPicker } from '../ui/pickers.js';
 import { nueva as nuevaOrden } from './caja.js';
 import { salesTable, bindAbrir, numTxt } from '../ui/salestable.js';
@@ -9,6 +9,7 @@ import { S } from '../store.js';
 import { calGrid } from '../ui/calgrid.js';
 import { deslizar } from '../ui/motion.js';
 
+let selec = null;
 let fProd = null, fCol = 'todos', cal = false, cmodo = 'mes', cref = null, dia = null;
 let paintEst = () => {}, root, estado = 'pendiente', mes = null, lista = [], loading = false, reqId = 0, anularPend = null;
 const ESTS = { pendiente: 'Pendientes', pordefinir: 'Por definir', pagada: 'Pagadas', todas: 'Todas' };
@@ -42,7 +43,8 @@ export function mount(el) {
     <div data-cgrid></div>
   </div>
   <div class="card olist">
-    <div class="ohead"><span data-k1></span><b class="num" data-k2></b></div>
+    <div class="ohead"><span data-k1></span><span class="row" style="gap:12px"><button class="lnk" data-selmode>Seleccionar</button><b class="num" data-k2></b></span></div>
+    <div class="selbar hide" data-selbar><span data-selnum></span><button class="btn sm" data-unir>Unificar en una orden</button></div>
     <div class="bulk hide" data-bulk><button class="btn line sm" data-cobrartodas>Cobrar todas sin método</button></div>
     <div data-list></div>
   </div>`;
@@ -76,7 +78,16 @@ export function mount(el) {
   });
   root.querySelector('[data-cobrartodas]').addEventListener('click', cobrarTodas);
   const list = root.querySelector('[data-list]');
+  list.addEventListener('click', e => {
+    if (!selec) return;
+    const tr = e.target.closest('tr.rowlink'); if (!tr) return;
+    e.stopImmediatePropagation();
+    if (selec.has(tr.dataset.id)) selec.delete(tr.dataset.id); else selec.add(tr.dataset.id);
+    paint();
+  }, true);
   bindAbrir(list);
+  root.querySelector('[data-selmode]').onclick = () => { selec = selec ? null : new Set(); paint(); };
+  root.querySelector('[data-unir]').onclick = unificar;
   on(what => { if ((what === 'remote' || what === 'sale') && root.closest('.view.on')) load(true); });
 }
 
@@ -98,7 +109,9 @@ async function load(silent = false, dir = 0) {
     const r = await api(`/api/orders?${q}`);
     if (id !== reqId) return;
     const cr2 = crango();
-    lista = r.sales.filter(v => !(v.anulada || v.estado === 'anulada') && (!cal || (v.fecha >= cr2.from && v.fecha <= cr2.to))); loading = false; paint();
+    lista = r.sales.filter(v => !(v.anulada || v.estado === 'anulada') && (!cal || (v.fecha >= cr2.from && v.fecha <= cr2.to))); loading = false;
+    if (selec) selec = new Set([...selec].filter(x => lista.some(v => v.id === x)));
+    paint();
     if (dir) deslizar(root.querySelector('[data-cgrid]'), dir, 40);
   } catch (e) { if (id === reqId) { loading = false; paint(); if (e.status !== 401) toast(e.message, true); } }
 }
@@ -139,8 +152,12 @@ function paint() {
   const total = vis.filter(v => !v.anulada).reduce((a, v) => a + v.total_cents, 0);
   root.querySelector('[data-k1]').textContent = loading ? '' : `${int(vis.length)} ${vis.length === 1 ? 'orden' : 'órdenes'}${dia ? ` · ${dmy(dia)}` : ''}`;
   root.querySelector('[data-k2]').textContent = loading ? '' : money(total);
-  root.querySelector('[data-bulk]').classList.toggle('hide', estado !== 'pendiente' || !vis.length);
-  root.querySelector('[data-list]').innerHTML = salesTable(vis, {
+  root.querySelector('[data-bulk]').classList.toggle('hide', !!selec || estado !== 'pendiente' || !vis.length);
+  root.querySelector('[data-selmode]').textContent = selec ? 'Cancelar' : 'Seleccionar';
+  root.querySelector('[data-selbar]').classList.toggle('hide', !selec);
+  if (selec) root.querySelector('[data-selnum]').textContent = selec.size ? `${selec.size} seleccionada${selec.size === 1 ? '' : 's'} · ${money(lista.filter(v => selec.has(v.id)).reduce((a, v) => a + v.total_cents, 0))}` : 'Toca las órdenes a unificar';
+  root.querySelector('[data-unir]').disabled = !selec || selec.size < 2;
+  root.querySelector('[data-list]').innerHTML = salesTable(vis, { sel: selec,
     loading, fecha: true, pago: estado !== 'pendiente',
     empty: estado === 'pendiente' ? 'No hay órdenes pendientes por cobrar' : 'Sin órdenes en este mes',
   });
@@ -160,3 +177,20 @@ async function cobrarTodas(e) {
 }
 
 export { esc };
+
+async function unificar() {
+  if (!selec || selec.size < 2) return;
+  const elegidas = lista.filter(v => selec.has(v.id));
+  if (new Set(elegidas.map(v => v.client_id || '')).size > 1) return toast('Solo se pueden unificar órdenes del mismo cliente', true);
+  const ok = await choice({
+    title: `¿Unificar ${elegidas.length} órdenes?`,
+    html: `<p class="sub-note">Todos los productos pasan a la orden más antigua. Las demás quedan anuladas y la numeración se reordena.</p>`,
+    buttons: [{ label: 'Cancelar', value: false, cls: 'line' }, { label: 'Unificar', value: true }],
+  });
+  if (!ok) return;
+  try {
+    const r = await api('/api/sales/merge', { method: 'POST', body: { ids: [...selec] } });
+    selec = null; toast('Órdenes unificadas'); emit('sale'); syncNow();
+    location.hash = `#orden=${r.sale.id}`;
+  } catch (e) { toast(e.message, true); }
+}

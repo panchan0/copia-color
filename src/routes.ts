@@ -388,6 +388,40 @@ export async function updateSale(c: Ctx) {
   return json({ ok: true, sale: await getSale(c.env, c.accountId, id) });
 }
 
+/** Unificar varias órdenes de un mismo cliente en una sola (la más antigua). */
+export async function mergeSales(c: Ctx) {
+  const b = await readJson(c.req);
+  const ids = Array.isArray(b.ids) ? [...new Set(b.ids.map((x: unknown) => str(x, 64)))].filter(Boolean) as string[] : [];
+  if (ids.length < 2 || ids.length > 50) throw new HttpError(400, 'Selecciona al menos dos órdenes');
+  const ph = ids.map(() => '?').join(',');
+  const { results } = await c.env.DB.prepare(`SELECT id, ts, client_id, estado, metodo, anulada, nota FROM sales WHERE account_id = ? AND id IN (${ph})`)
+    .bind(c.accountId, ...ids).all<{ id: string; ts: number; client_id: string | null; estado: string; metodo: string | null; anulada: number; nota: string | null }>();
+  if (results.length !== ids.length || results.some(r => r.anulada)) throw new HttpError(400, 'Alguna orden ya no existe o está anulada');
+  if (new Set(results.map(r => r.client_id || '')).size > 1) throw new HttpError(400, 'Solo se pueden unificar órdenes del mismo cliente');
+  if (new Set(results.map(r => `${r.estado}|${r.metodo || ''}`)).size > 1) throw new HttpError(400, 'Las órdenes deben tener el mismo estado (todas pendientes, o cobradas con el mismo método)');
+  results.sort((a, z) => a.ts - z.ts);
+  const dest = results[0], otras = results.slice(1);
+  const st = await getSettings(c.env, c.accountId);
+  const notas = results.map(r => r.nota).filter(Boolean).join('\n').slice(0, 600) || null;
+  const oph = otras.map(() => '?').join(',');
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE sale_items SET sale_id = ? WHERE sale_id IN (${oph})`).bind(dest.id, ...otras.map(o => o.id)),
+    c.env.DB.prepare(`UPDATE sales SET anulada = 1, anulada_ts = ?, estado = 'anulada', numero_anulado = numero, numero = NULL, nota = 'Unificada en otra orden'
+                      WHERE account_id = ? AND id IN (${oph})`).bind(Date.now(), c.accountId, ...otras.map(o => o.id)),
+    c.env.DB.prepare(`UPDATE sales SET nota = ?,
+        subtotal_cents = (SELECT COALESCE(SUM(sub_cents), 0) FROM sale_items WHERE sale_id = sales.id),
+        itbms_cents = CAST(ROUND((SELECT COALESCE(SUM(sub_cents), 0) FROM sale_items WHERE sale_id = sales.id) * ? / 100.0) AS INTEGER),
+        total_cents = (SELECT COALESCE(SUM(sub_cents), 0) FROM sale_items WHERE sale_id = sales.id) + CAST(ROUND((SELECT COALESCE(SUM(sub_cents), 0) FROM sale_items WHERE sale_id = sales.id) * ? / 100.0) AS INTEGER),
+        paginas = (SELECT COALESCE(SUM(cant), 0) FROM sale_items WHERE sale_id = sales.id)
+      WHERE id = ? AND account_id = ?`).bind(notas, st.itbms.tasa, st.itbms.tasa, dest.id, c.accountId),
+    // numeración sin huecos
+    c.env.DB.prepare(`UPDATE sales SET numero = (SELECT rn FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY COALESCE(numero, 1e9), ts, id) AS rn FROM sales WHERE account_id = ? AND anulada = 0) r WHERE r.id = sales.id)
+                      WHERE account_id = ? AND anulada = 0`).bind(c.accountId, c.accountId),
+    await bumpRev(c.env, c.accountId),
+  ]);
+  return json({ ok: true, sale: await getSale(c.env, c.accountId, dest.id) });
+}
+
 /** Cobrar una orden pendiente. */
 export async function paySale(c: Ctx) {
   const b = await readJson(c.req);
