@@ -38,6 +38,8 @@ const SCHEMA = [
   'CREATE TABLE IF NOT EXISTS closings ( account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, fecha TEXT NOT NULL, inicio INTEGER, fin INTEGER, fiery INTEGER, efectivo_cents INTEGER, nota TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY (account_id, fecha) )',
   'CREATE TABLE IF NOT EXISTS machine_jobs ( account_id TEXT NOT NULL, maquina TEXT NOT NULL, hash TEXT NOT NULL, fecha TEXT NOT NULL, color INTEGER NOT NULL DEFAULT 0, bn INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, PRIMARY KEY (account_id, maquina, hash) )',
   'CREATE INDEX IF NOT EXISTS idx_mjobs_fecha ON machine_jobs(account_id, fecha)',
+  'CREATE TABLE IF NOT EXISTS assets ( account_id TEXT NOT NULL, k TEXT NOT NULL, data TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (account_id, k) )',
+  'CREATE TABLE IF NOT EXISTS password_resets ( token_hash TEXT PRIMARY KEY, account_id TEXT NOT NULL, expires INTEGER NOT NULL )',
 ];
 
 const INDEXES = [
@@ -58,8 +60,18 @@ async function columns(env: Env, table: string) {
 async function upgradeSales(env: Env) {
   const row = await env.DB.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sales'").first<{ sql: string }>();
   if (!row || row.sql.includes('estado')) return;
+  // Órdenes importadas: se dan por cobradas (método por definir) y sin nota automática
+  await env.DB.prepare(`UPDATE sales SET estado = 'pagada', metodo = 'pordefinir', pagada_ts = ts, pagada_fecha = fecha, pagada_hora = hora
+                        WHERE origen LIKE 'joblog:%' AND estado = 'pendiente' AND anulada = 0`).run().catch(() => {});
+  await env.DB.prepare(`UPDATE sales SET nota = NULL WHERE origen LIKE 'joblog:%' AND nota LIKE 'Importado de %'`).run().catch(() => {});
+  // Numeración sin huecos: las anuladas no llevan número
+  const hueco = await env.DB.prepare('SELECT account_id FROM sales WHERE anulada = 0 GROUP BY account_id HAVING MAX(numero) != COUNT(*) OR COUNT(numero) != COUNT(*) LIMIT 1').first().catch(() => null);
+  if (hueco) await env.DB.prepare(`UPDATE sales SET numero = (SELECT rn FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY COALESCE(numero, 1e9), ts, id) AS rn FROM sales WHERE anulada = 0) r WHERE r.id = sales.id)
+                                   WHERE anulada = 0`).run();
   const ac = await columns(env, 'accounts');
   if (!ac.has('recovery_hash')) await env.DB.prepare('ALTER TABLE accounts ADD COLUMN recovery_hash TEXT').run();
+  if (!ac.has('totp_secret')) await env.DB.prepare('ALTER TABLE accounts ADD COLUMN totp_secret TEXT').run();
+  if (!ac.has('totp_pending')) await env.DB.prepare('ALTER TABLE accounts ADD COLUMN totp_pending TEXT').run();
   const sc = await columns(env, 'sales');
   const has = (c: string) => sc.has(c);
   const numero = has('numero') ? 'numero' : 'NULL';
@@ -99,8 +111,18 @@ async function migrate(env: Env) {
   if (!cc.has('email')) add.push(env.DB.prepare('ALTER TABLE clients ADD COLUMN email TEXT'));
   if (!cc.has('dm')) add.push(env.DB.prepare('ALTER TABLE clients ADD COLUMN dm TEXT'));
   if (add.length) await env.DB.batch(add);
+  // Órdenes importadas: se dan por cobradas (método por definir) y sin nota automática
+  await env.DB.prepare(`UPDATE sales SET estado = 'pagada', metodo = 'pordefinir', pagada_ts = ts, pagada_fecha = fecha, pagada_hora = hora
+                        WHERE origen LIKE 'joblog:%' AND estado = 'pendiente' AND anulada = 0`).run().catch(() => {});
+  await env.DB.prepare(`UPDATE sales SET nota = NULL WHERE origen LIKE 'joblog:%' AND nota LIKE 'Importado de %'`).run().catch(() => {});
+  // Numeración sin huecos: las anuladas no llevan número
+  const hueco = await env.DB.prepare('SELECT account_id FROM sales WHERE anulada = 0 GROUP BY account_id HAVING MAX(numero) != COUNT(*) OR COUNT(numero) != COUNT(*) LIMIT 1').first().catch(() => null);
+  if (hueco) await env.DB.prepare(`UPDATE sales SET numero = (SELECT rn FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY COALESCE(numero, 1e9), ts, id) AS rn FROM sales WHERE anulada = 0) r WHERE r.id = sales.id)
+                                   WHERE anulada = 0`).run();
   const ac = await columns(env, 'accounts');
   if (!ac.has('recovery_hash')) await env.DB.prepare('ALTER TABLE accounts ADD COLUMN recovery_hash TEXT').run();
+  if (!ac.has('totp_secret')) await env.DB.prepare('ALTER TABLE accounts ADD COLUMN totp_secret TEXT').run();
+  if (!ac.has('totp_pending')) await env.DB.prepare('ALTER TABLE accounts ADD COLUMN totp_pending TEXT').run();
   const sc = await columns(env, 'sales');
   if (!sc.has('origen')) await env.DB.prepare('ALTER TABLE sales ADD COLUMN origen TEXT').run();
   await env.DB.batch(INDEXES.map(s => env.DB.prepare(s)));

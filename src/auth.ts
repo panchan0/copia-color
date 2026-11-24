@@ -45,7 +45,8 @@ export async function createSession(env: Env, accountId: string, req: Request): 
 
 export function sessionCookie(token: string, url: URL): string {
   const secure = url.protocol === 'https:' ? '; Secure' : '';
-  return `${cookieName(url)}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_DAYS * 86400}${secure}`;
+  // cookie de sesión: el navegador la borra al cerrarse
+  return `${cookieName(url)}=${token}; Path=/; HttpOnly; SameSite=Strict${secure}`;
 }
 export function clearCookie(url: URL): string {
   const secure = url.protocol === 'https:' ? '; Secure' : '';

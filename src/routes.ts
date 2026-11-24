@@ -1,4 +1,5 @@
 import type { Ctx, Env } from './types';
+import { totpOk, mailOk } from './security';
 import { HttpError, json, readJson, isDate, str, intOrNull, uuid } from './http';
 import { hashPassword, safeEqual, iterations, createSession, sessionCookie, clearCookie, destroySession, rateLimit, clearRateLimit } from './auth';
 import { getSettings, validateSettings, bumpRev, defaults } from './settings';
@@ -40,11 +41,15 @@ export async function login(env: Env, req: Request, url: URL): Promise<Response>
   const ip = req.headers.get('cf-connecting-ip') || 'local';
   await rateLimit(env, 'login:' + email, 8, 15 * 60_000);
   await rateLimit(env, 'ip:' + ip, 40, 15 * 60_000);
-  const row = await env.DB.prepare('SELECT id, pass_hash, pass_salt, pass_iter FROM accounts WHERE email = ?').bind(email)
-    .first<{ id: string; pass_hash: string; pass_salt: string; pass_iter: number }>();
+  const row = await env.DB.prepare('SELECT id, pass_hash, pass_salt, pass_iter, totp_secret FROM accounts WHERE email = ?').bind(email)
+    .first<{ id: string; pass_hash: string; pass_salt: string; pass_iter: number; totp_secret: string | null }>();
   if (!row) throw new HttpError(401, 'Correo o contraseña incorrectos');
   const h = await hashPassword(password, row.pass_salt, row.pass_iter);
   if (!safeEqual(h.hash, row.pass_hash)) throw new HttpError(401, 'Correo o contraseña incorrectos');
+  if (row.totp_secret) {
+    if (!b.code) return json({ need2fa: true });
+    if (!(await totpOk(row.totp_secret, b.code))) throw new HttpError(401, 'El código de verificación no es correcto');
+  }
   await clearRateLimit(env, 'login:' + email);
   const token = await createSession(env, row.id, req);
   return json({ ok: true }, 200, { 'set-cookie': sessionCookie(token, url) });
@@ -101,9 +106,9 @@ export async function logout(env: Env, req: Request, url: URL): Promise<Response
 }
 
 export async function me(c: Ctx) {
-  const a = await c.env.DB.prepare('SELECT email, business, rev, recovery_hash IS NOT NULL AS recovery FROM accounts WHERE id = ?').bind(c.accountId).first();
+  const a = await c.env.DB.prepare('SELECT email, business, rev, recovery_hash IS NOT NULL AS recovery, totp_secret IS NOT NULL AS totp FROM accounts WHERE id = ?').bind(c.accountId).first();
   if (!a) throw new HttpError(401, 'Inicia sesión');
-  a.recovery = !!a.recovery;
+  a.recovery = !!a.recovery; a.totp = !!a.totp; a.mail = mailOk(c.env);
   return json({ account: a, settings: await getSettings(c.env, c.accountId) });
 }
 
@@ -268,25 +273,8 @@ export async function saleById(c: Ctx) {
 const METODOS = new Set(['efectivo', 'tarjeta', 'yappy', 'pordefinir']);
 const EMAIL_OK = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
 
-export async function createSale(c: Ctx) {
-  const b = await readJson(c.req);
-  const id = str(b.id, 64);
-  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new HttpError(400, 'Id de orden inválido');
-  const pagar = b.metodo != null && b.metodo !== '';
-  if (pagar && !METODOS.has(b.metodo)) throw new HttpError(400, 'Método de pago inválido');
+async function armarOrden(c: Ctx, b: any) {
   if (!Array.isArray(b.items) || b.items.length < 1 || b.items.length > 50) throw new HttpError(400, 'La orden no tiene líneas');
-
-  // Órdenes creadas desde el registro de una máquina: fecha original y sin duplicar
-  let origen: string | null = null, tsOrigen: number | null = null;
-  if (b.origen != null) {
-    origen = str(b.origen, 80);
-    if (!/^joblog:[0-9a-f]{16,64}$/.test(origen)) throw new HttpError(400, 'Origen inválido');
-    tsOrigen = Math.round(Number(b.ts));
-    if (!Number.isFinite(tsOrigen) || tsOrigen > Date.now() + 60000 || tsOrigen < Date.now() - 400 * 86400000) throw new HttpError(400, 'Fecha del trabajo inválida');
-  }
-  const prev = await c.env.DB.prepare('SELECT id FROM sales WHERE account_id = ? AND (id = ? OR (origen IS NOT NULL AND origen = ?))').bind(c.accountId, id, origen).first<{ id: string }>();
-  if (prev) return json({ ok: true, duplicate: true, sale: await getSale(c.env, c.accountId, prev.id) });
-
   const st = await getSettings(c.env, c.accountId);
   const items = b.items.map((it: any) => {
     const f = findItem(st.catalogo, str(it?.serv, 40), str(it?.tam, 40));
@@ -314,7 +302,7 @@ export async function createSale(c: Ctx) {
       color = !!it.color;
       tam = str(it.tamano, 40) || '—';
     }
-    const nota = str(it.extra, 80);
+    const nota = str(it.extra, 200);
     if (nota) extra = extra ? `${extra} · ${nota}` : nota;
     return { cat: s.cat, tipo: s.id, tam, nombre, color: color ? 1 : 0, unidad: s.unidad, extra, cant, precio, sub: Math.round(precio * cant) };
   });
@@ -333,6 +321,28 @@ export async function createSale(c: Ctx) {
   }
   const email = str(b.contacto_email, 120);
   if (email && !EMAIL_OK.test(email)) throw new HttpError(400, 'Correo de contacto inválido');
+  return { st, items, subtotal, itbms, total, paginas, clientId, clientName, email };
+}
+
+export async function createSale(c: Ctx) {
+  const b = await readJson(c.req);
+  const id = str(b.id, 64);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new HttpError(400, 'Id de orden inválido');
+  const pagar = b.metodo != null && b.metodo !== '';
+  if (pagar && !METODOS.has(b.metodo)) throw new HttpError(400, 'Método de pago inválido');
+
+  // Órdenes creadas desde el registro de una máquina: fecha original y sin duplicar
+  let origen: string | null = null, tsOrigen: number | null = null;
+  if (b.origen != null) {
+    origen = str(b.origen, 80);
+    if (!/^joblog:[0-9a-f]{16,64}$/.test(origen)) throw new HttpError(400, 'Origen inválido');
+    tsOrigen = Math.round(Number(b.ts));
+    if (!Number.isFinite(tsOrigen) || tsOrigen > Date.now() + 60000 || tsOrigen < Date.now() - 400 * 86400000) throw new HttpError(400, 'Fecha del trabajo inválida');
+  }
+  const prev = await c.env.DB.prepare('SELECT id FROM sales WHERE account_id = ? AND (id = ? OR (origen IS NOT NULL AND origen = ?))').bind(c.accountId, id, origen).first<{ id: string }>();
+  if (prev) return json({ ok: true, duplicate: true, sale: await getSale(c.env, c.accountId, prev.id) });
+
+  const { st, items, subtotal, itbms, total, paginas, clientId, clientName, email } = await armarOrden(c, b);
 
   const ts = tsOrigen ?? Date.now();
   const { fecha, hora } = localParts(ts, st.tz);
@@ -343,7 +353,7 @@ export async function createSale(c: Ctx) {
                         ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .bind(id, c.accountId, c.accountId, fecha, hora, ts, clientId, clientName,
         str(b.contacto_tel, 30) || null, str(b.contacto_dm, 60) || null, email || null,
-        str(b.operador, 60) || null, str(b.nota, 300) || null, origen,
+        str(b.operador, 60) || null, str(b.nota, 600) || null, origen,
         pagar ? 'pagada' : 'pendiente', pagar ? b.metodo : null,
         pagar ? ts : null, pagar ? fecha : null, pagar ? hora : null,
         subtotal, itbms, total, paginas),
@@ -354,6 +364,28 @@ export async function createSale(c: Ctx) {
   ];
   await c.env.DB.batch(stmts);
   return json({ ok: true, sale: await getSale(c.env, c.accountId, id) }, 201);
+}
+
+/** Editar una orden (productos, cliente, contacto, nota, operador). */
+export async function updateSale(c: Ctx) {
+  const b = await readJson(c.req);
+  const id = c.params.id;
+  const cur = await c.env.DB.prepare('SELECT id, anulada FROM sales WHERE id = ? AND account_id = ?').bind(id, c.accountId).first<{ id: string; anulada: number }>();
+  if (!cur) throw new HttpError(404, 'Orden no encontrada');
+  if (cur.anulada) throw new HttpError(409, 'No se puede editar una orden anulada');
+  const { items, subtotal, itbms, total, paginas, clientId, clientName, email } = await armarOrden(c, b);
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE sales SET client_id = ?, client_name = ?, contacto_tel = ?, contacto_dm = ?, contacto_email = ?, operador = ?, nota = ?,
+                        subtotal_cents = ?, itbms_cents = ?, total_cents = ?, paginas = ? WHERE id = ? AND account_id = ? AND anulada = 0`)
+      .bind(clientId, clientName, str(b.contacto_tel, 30) || null, str(b.contacto_dm, 60) || null, email || null,
+        str(b.operador, 60) || null, str(b.nota, 600) || null, subtotal, itbms, total, paginas, id, c.accountId),
+    c.env.DB.prepare('DELETE FROM sale_items WHERE sale_id = ?').bind(id),
+    ...items.map((x: any) => c.env.DB.prepare(`INSERT INTO sale_items (sale_id, cat, tipo, tam, nombre, color, unidad, extra, cant, precio_cents, sub_cents)
+                                                VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(id, x.cat, x.tipo, x.tam, x.nombre, x.color, x.unidad, x.extra, x.cant, x.precio, x.sub)),
+    await bumpRev(c.env, c.accountId),
+  ]);
+  return json({ ok: true, sale: await getSale(c.env, c.accountId, id) });
 }
 
 /** Cobrar una orden pendiente. */
@@ -414,10 +446,14 @@ export async function payMany(c: Ctx) {
 
 /** Anular: la orden pierde su número para que el siguiente lo reutilice si era el último. */
 export async function voidSale(c: Ctx) {
+  const cur = await c.env.DB.prepare('SELECT numero FROM sales WHERE id = ? AND account_id = ? AND anulada = 0').bind(c.params.id, c.accountId).first<{ numero: number | null }>();
+  if (!cur) throw new HttpError(404, 'Orden no encontrada o ya anulada');
   const r = await c.env.DB.prepare(`UPDATE sales SET anulada = 1, anulada_ts = ?, estado = 'anulada', numero_anulado = numero, numero = NULL
                                     WHERE id = ? AND account_id = ? AND anulada = 0`)
     .bind(Date.now(), c.params.id, c.accountId).run();
   if (!r.meta.changes) throw new HttpError(404, 'Orden no encontrada o ya anulada');
+  // Las órdenes activas siguientes recorren su número para no dejar huecos
+  if (cur.numero != null) await c.env.DB.prepare('UPDATE sales SET numero = numero - 1 WHERE account_id = ? AND anulada = 0 AND numero > ?').bind(c.accountId, cur.numero).run();
   await (await bumpRev(c.env, c.accountId)).run();
   return json({ ok: true });
 }

@@ -1,6 +1,6 @@
 import { openMenu, keyNav } from './menu.js';
 import { dialog, ICON, toast } from './dom.js';
-import { esc, METODOS } from '../util.js';
+import { esc, METODOS, opCode, nuevoCodigoOp } from '../util.js';
 import { S, syncNow } from '../store.js';
 import { api } from '../api.js';
 
@@ -132,7 +132,25 @@ export function listPicker(btn, { items, getValue, onChange, placeholder = 'Sele
 }
 
 /** Selector de operador: lista guardada en Ajustes + agregar nuevo. */
+/** Crea un operador con número de dos dígitos. Devuelve su código (inicial + número). */
+export async function crearOperador() {
+  const r = await dialog({
+    title: 'Nuevo operador', fields: [{ name: 'name', label: 'Nombre' }],
+    async onSubmit(v) {
+      const name = (v.name || '').trim(); if (!name) throw new Error('Escribe el nombre');
+      const st = structuredClone(S.settings);
+      let o = st.operadores.find(x => x.n.toLowerCase() === name.toLowerCase());
+      if (!o) { o = { n: name, c: nuevoCodigoOp(st.operadores) }; st.operadores.push(o); }
+      const res = await api('/api/settings', { method: 'PUT', body: st });
+      S.settings = res.settings; syncNow();
+      return { code: opCode(S.settings.operadores.find(x => x.n === o.n) || o) };
+    },
+  });
+  return r?.code || null;
+}
+
 export function operadorPicker(btn, getValue, onChange) {
+  const ops = () => S.settings.operadores || [];
   const paint = () => {
     const v = getValue();
     btn.className = 'picker';
@@ -141,24 +159,13 @@ export function operadorPicker(btn, getValue, onChange) {
   btn.addEventListener('click', () => openMenu(btn, {
     width: 'anchor',
     build(el, close) {
-      const ops = S.settings.operadores || [];
-      el.innerHTML = `<div class="list">${ops.map(o => `<button type="button" class="it${o === getValue() ? ' sel' : ''}" data-v="${esc(o)}">${esc(o)}</button>`).join('')}
-        ${ops.length ? '' : '<div class="none">Todavía no hay operadores</div>'}<div class="sep"></div><button type="button" class="it add" data-add>${ICON.plus}Agregar operador</button></div>`;
+      el.innerHTML = `<div class="list">${ops().map(o => `<button type="button" class="it${opCode(o) === getValue() ? ' sel' : ''}" data-v="${esc(opCode(o))}"><b class="num">${esc(opCode(o))}</b></button>`).join('')}
+        ${ops().length ? '' : '<div class="none">Todavía no hay operadores</div>'}<div class="sep"></div><button type="button" class="it add" data-add>${ICON.plus}Agregar operador</button></div>`;
       el.addEventListener('click', async e => {
         const b = e.target.closest('.it'); if (!b) return; close();
         if (b.dataset.add !== undefined) {
-          const r = await dialog({
-            title: 'Nuevo operador', fields: [{ name: 'name', label: 'Nombre' }],
-            async onSubmit(v) {
-              const name = (v.name || '').trim(); if (!name) throw new Error('Escribe el nombre');
-              const st = structuredClone(S.settings);
-              if (!st.operadores.includes(name)) st.operadores.push(name);
-              const res = await api('/api/settings', { method: 'PUT', body: st });
-              S.settings = res.settings; syncNow();
-              return { name };
-            },
-          });
-          if (r) { onChange(r.name); paint(); }
+          const r = await crearOperador();
+          if (r) { onChange(r); paint(); }
           return;
         }
         onChange(b.dataset.v); paint();

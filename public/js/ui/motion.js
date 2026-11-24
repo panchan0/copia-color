@@ -9,48 +9,62 @@ const punto = () => (ultimo && Date.now() - ultimo.t < 1500 ? { x: ultimo.x, y: 
 const pila = [];
 
 /**
- * Ejecuta `cambiar` (que actualiza la pantalla) con una transición.
- * tipo: 'adelante' | 'atras' (cambio de sección) · 'abrir' | 'cerrar' (subpantalla) · null (sin animación)
+ * Ejecuta `cambiar` (que muestra otra pantalla) con una transición propia, sin capturas:
+ * la pantalla anterior queda fija en su lugar mientras sale y la nueva entra.
+ * tipo: 'adelante' | 'atras' (cambio de sección) · 'abrir' | 'cerrar' (subpantalla) · null
  */
-export function transicion(tipo, cambiar) {
-  if (!tipo || calma()) { if (tipo === 'abrir') pila.push(punto()); if (tipo === 'cerrar') pila.pop(); cambiar(); return; }
-  let p = null;
-  if (tipo === 'abrir') { p = punto(); pila.push(p); }
-  if (tipo === 'cerrar') p = pila.pop() || { x: innerWidth / 2, y: innerHeight / 3 };
-  if (p) {
-    const r = Math.hypot(Math.max(p.x, innerWidth - p.x), Math.max(p.y, innerHeight - p.y));
-    const m = document.querySelector('main').getBoundingClientRect();
-    const set = (k, v) => root.style.setProperty(k, Math.round(v) + 'px');
-    set('--vr', r * 1.05);
-    set('--ox', p.x - m.left); set('--oy', p.y - m.top);
-    set('--nx', p.x - m.left); set('--ny', p.y - (m.top + scrollY));
-  }
-  const eje = esPC() ? 'y' : 'x';
-  root.dataset.vt = tipo === 'abrir' || tipo === 'cerrar' ? tipo : `${tipo}-${eje}`;
-  const fin = () => { delete root.dataset.vt; };
-  if (document.startViewTransition) {
-    try {
-      const vt = document.startViewTransition(cambiar);
-      vt.finished.then(fin, fin);
-      return;
-    } catch { /* sigue sin View Transitions */ }
-  }
+let enCurso = null;
+export function transicion(tipo, cambiar, getEl = () => document.querySelector('.view.on')) {
+  if (enCurso) enCurso();
+  if (tipo === 'abrir') pila.push(punto());
+  const pOrigen = tipo === 'cerrar' ? (pila.pop() || { x: innerWidth / 2, y: innerHeight / 3 }) : tipo === 'abrir' ? pila[pila.length - 1] : null;
+  const viejo = getEl();
+  if (!tipo || calma() || !viejo || !viejo.animate) { cambiar(); return; }
+  const r = viejo.getBoundingClientRect();
+  // congelar la pantalla anterior donde está
+  const fantasma = viejo;
+  fantasma.classList.add('saliendo');
+  Object.assign(fantasma.style, { position: 'fixed', top: r.top + 'px', left: r.left + 'px', width: r.width + 'px', margin: '0', pointerEvents: 'none', zIndex: tipo === 'cerrar' ? '6' : '1' });
   cambiar();
-  const v = document.querySelector('.view.on');
-  if (!v) return fin();
-  const k = root.dataset.vt;
-  const frames = k === 'abrir'
-    ? [{ clipPath: `circle(0 at ${p.x}px ${p.y - v.getBoundingClientRect().top}px)` }, { clipPath: `circle(${root.style.getPropertyValue('--vr')} at ${p.x}px ${p.y - v.getBoundingClientRect().top}px)` }]
-    : k === 'cerrar' ? [{ opacity: 0, transform: 'scale(.985)' }, { opacity: 1, transform: 'none' }]
-    : k.endsWith('-y') ? [{ opacity: 0, transform: `translateY(${tipo === 'adelante' ? 40 : -40}px)` }, { opacity: 1, transform: 'none' }]
-    : [{ opacity: 0, transform: `translateX(${tipo === 'adelante' ? 40 : -40}px)` }, { opacity: 1, transform: 'none' }];
-  v.animate(frames, { duration: k === 'abrir' ? 420 : 320, easing: 'cubic-bezier(.2,.8,.2,1)' }).finished.then(fin, fin);
+  const nuevo = getEl();
+  if (!nuevo || nuevo === viejo) { limpiar(); return; }
+  nuevo.style.position = 'relative'; nuevo.style.zIndex = tipo === 'cerrar' ? '0' : '5';
+  const pc = esPC(), sgn = tipo === 'atras' ? -1 : 1;
+  const ease = 'cubic-bezier(.22,.8,.24,1)';
+  let a1, a2;
+  if (tipo === 'adelante' || tipo === 'atras') {
+    const d = pc ? 'translateY' : 'translateX', far = pc ? 48 : Math.round(innerWidth * 0.32), near = pc ? -32 : -Math.round(innerWidth * 0.18);
+    a1 = fantasma.animate([{ transform: 'none', opacity: 1 }, { transform: `${d}(${near * sgn}px)`, opacity: 0 }], { duration: 260, easing: 'cubic-bezier(.4,0,.6,1)', fill: 'forwards' });
+    a2 = nuevo.animate([{ transform: `${d}(${far * sgn}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 380, easing: ease, fill: 'backwards' });
+  } else {
+    const p = pOrigen, R = Math.hypot(Math.max(p.x, innerWidth - p.x), Math.max(p.y, innerHeight - p.y)) + 40;
+    if (tipo === 'abrir') {
+      const nr = nuevo.getBoundingClientRect(), x = p.x - nr.left, y = p.y - nr.top;
+      nuevo.classList.add('revelando');
+      a2 = nuevo.animate([{ clipPath: `circle(0px at ${x}px ${y}px)` }, { clipPath: `circle(${R}px at ${x}px ${y}px)` }], { duration: 520, easing: 'cubic-bezier(.33,.7,.2,1)' });
+      a1 = fantasma.animate([{ opacity: 1, transform: 'none' }, { opacity: 0.6, transform: 'scale(.985)' }], { duration: 520, easing: ease, fill: 'forwards' });
+    } else {
+      const x = p.x - r.left, y = p.y - r.top;
+      fantasma.classList.add('revelando');
+      a1 = fantasma.animate([{ clipPath: `circle(${R}px at ${x}px ${y}px)` }, { clipPath: `circle(0px at ${x}px ${y}px)` }], { duration: 440, easing: 'cubic-bezier(.55,0,.7,.35)', fill: 'forwards' });
+      a2 = nuevo.animate([{ opacity: 0.6, transform: 'scale(.985)' }, { opacity: 1, transform: 'none' }], { duration: 440, easing: ease });
+    }
+  }
+  function limpiar() {
+    enCurso = null;
+    fantasma.classList.remove('saliendo', 'revelando');
+    fantasma.removeAttribute('style');
+    if (nuevo) { nuevo.classList.remove('revelando'); nuevo.style.position = ''; nuevo.style.zIndex = ''; }
+    a1?.cancel(); a2?.cancel();
+  }
+  enCurso = limpiar;
+  Promise.all([a1?.finished, a2?.finished].filter(Boolean)).then(limpiar, limpiar);
 }
 
 /** Desliza un elemento al cambiar de fecha (dir -1 izquierda, 1 derecha). */
-export function deslizar(el, dir) {
+export function deslizar(el, dir, dist = 36) {
   if (!el || calma() || !el.animate) return;
-  el.animate([{ transform: `translateX(${dir * 26}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 320, easing: 'cubic-bezier(.2,.9,.3,1.15)' });
+  el.animate([{ transform: `translateX(${dir * dist}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 420, easing: 'cubic-bezier(.22,.9,.28,1.06)' });
 }
 
 /* Indicadores deslizantes: menú principal y selectores (.seg). */

@@ -4,7 +4,7 @@ import { $, $$, toast } from './ui/dom.js';
 import { closeMenu } from './ui/menu.js';
 import { transicion, syncNav } from './ui/motion.js';
 import { ci } from './icons.js';
-import { aplicarTema } from './tema.js';
+import { aplicarTema, prefs, guardarPref } from './tema.js';
 import { showAuth } from './views/auth.js';
 import { esc } from './util.js';
 import * as dia from './views/dia.js';
@@ -61,7 +61,7 @@ function paintAcct() {
   const logo = S.settings?.empresa?.logo;
   const av = S.account ? (logo ? `<img src="${esc(logo)}" alt="">` : `<span class="ini">${esc((S.account.business || '?').trim().charAt(0).toUpperCase())}</span>`) : '';
   $('#acct').innerHTML = S.account ? `${av}<span class="an"><b>${esc(S.account.business)}</b><small>${esc(S.account.email)}</small></span><span class="gear">${ci('ajustes')}</span>` : '';
-  $('#brand').innerHTML = '<div class="cmyk"><i style="background:var(--c)"></i><i style="background:var(--m)"></i><i style="background:var(--y)"></i><i style="background:var(--ink)"></i></div><b>Color</b>';
+  $('#brand').innerHTML = '<div class="cmyk"><i style="background:var(--c)"></i><i style="background:var(--m)"></i><i style="background:var(--y)"></i><i style="background:var(--ink)"></i></div><b>Color</b><button class="navtog" data-navtoggle aria-label="Minimizar barra"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>';
   syncNav();
 }
 
@@ -93,7 +93,7 @@ function lock() {
   stopSync(); closeMenu();
   document.body.classList.add('locked');
   const a = $('#auth'); a.classList.remove('hide');
-  showAuth(a, () => enter().catch(e => toast(e.message, true)));
+  showAuth(a, () => { document.dispatchEvent(new Event('sesion-iniciada')); if (location.hash.startsWith('#reset=')) history.replaceState(null, '', '#dia'); enter().catch(e => toast(e.message, true)); });
 }
 
 setHandlers(
@@ -103,7 +103,33 @@ setHandlers(
 
 document.getElementById('updbtn')?.addEventListener('click', () => location.reload());
 
+/* Comportamiento de app: sin zoom con los dedos ni doble toque */
+document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false });
+document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+let ultimoToque = 0;
+document.addEventListener('touchend', e => {
+  const t = Date.now();
+  if (t - ultimoToque < 300 && !e.target.closest('input, textarea, select')) e.preventDefault();
+  ultimoToque = t;
+}, { passive: false });
+
+/* Barra lateral plegable (PC) */
+function aplicarBarra() { document.body.classList.toggle('nav-min', !!prefs().barraMin); syncNav(); }
+document.addEventListener('click', e => {
+  if (!e.target.closest('[data-navtoggle]')) return;
+  guardarPref({ barraMin: !prefs().barraMin }); aplicarBarra();
+  setTimeout(syncNav, 320);
+});
+aplicarBarra();
+
+/* Por seguridad, al cerrar la app por completo la sesión se cierra */
+const VIVA = 'cc_viva';
+let viva = false; try { viva = sessionStorage.getItem(VIVA) === '1'; } catch { /* */ }
+document.addEventListener('sesion-iniciada', () => { try { sessionStorage.setItem(VIVA, '1'); } catch { /* */ } });
+
 (async () => {
-  try { await enter(); }
+  if (!viva && !location.hash.startsWith('#reset=')) { try { await api('/api/auth/logout', { method: 'POST', body: {} }); } catch { /* sin sesión */ } }
+  if (location.hash.startsWith('#reset=')) { lock(); return; }
+  try { await enter(); document.dispatchEvent(new Event('sesion-iniciada')); }
   catch (e) { if (e.status !== 401) { toast(e.message, true); lock(); } }
 })();

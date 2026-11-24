@@ -16,9 +16,9 @@ export function guardarPref(cambios) {
   const p = { ...prefs(), ...cambios };
   try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { /* sin almacenamiento */ }
   const r = document.documentElement;
-  if ('tema' in cambios && !r.classList.contains('calma') && document.startViewTransition) {
-    r.dataset.vt = 'tema';
-    document.startViewTransition(aplicarTema).finished.finally(() => { delete r.dataset.vt; });
+  if ('tema' in cambios && !r.classList.contains('calma')) {
+    r.classList.add('tema-cambia'); aplicarTema();
+    setTimeout(() => r.classList.remove('tema-cambia'), 450);
   } else aplicarTema();
 }
 mq.addEventListener?.('change', aplicarTema);

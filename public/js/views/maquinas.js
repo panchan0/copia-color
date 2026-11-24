@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 import { S, today, on, syncNow, emit } from '../store.js';
-import { toast, ICON } from '../ui/dom.js';
+import { toast, ICON, dialog, choice } from '../ui/dom.js';
+import { listPicker } from '../ui/pickers.js';
 import { readText, parseCSV, guessMap, procesar, proponerOrdenes } from '../csvlog.js';
 import { esc, int, addDays, dmy, cap, fechaCorta, uuid } from '../util.js';
 
@@ -8,19 +9,18 @@ import { esc, int, addDays, dmy, cap, fechaCorta, uuid } from '../util.js';
  * Importación en un toque: se sube el registro y la app
  *  - toma solo impresiones a color que salieron OK (lo demás se descarta),
  *  - guarda el conteo de páginas a color por día,
- *  - crea las órdenes de venta (pendientes de cobro, con la fecha del trabajo),
+ *  - crea las órdenes de venta como cobradas (método por definir, con la fecha del trabajo),
  *  - nunca duplica: lo ya importado se ignora.
  */
 let root, dias = {}, ocupado = false;
 const resultado = {};
 
-const AYUDA = {
-  versant: 'Command WorkStation → Registro de trabajos → Exportar → guarda el archivo. Luego tócalo aquí.',
-  wc7845: 'En el navegador, la IP de la máquina → Propiedades → Contabilidad → Informe → descarga el archivo. Luego tócalo aquí.',
-};
+let maqSel = null;
+const AYUDA = 'Exporta desde la impresora o su servidor de impresión el registro de trabajos (Job Log) como archivo .csv o .txt y súbelo aquí. Solo se toman las impresiones a color que salieron bien; lo que ya se importó no se repite.';
 
 export function mount(el) {
   root = el;
+  maqSel = S.settings.maquinas[0]?.id || null;
   root.innerHTML = `<div class="maqs" data-maqs></div>
   <div class="card"><div class="label">Páginas a color · últimos 31 días</div><div class="scrollx"><table class="dtable mtab" data-tab></table></div></div>`;
   root.addEventListener('change', onFile);
@@ -35,18 +35,51 @@ const ultimoDia = id => Object.keys(dias).filter(f => dias[f].maq?.[id]).sort().
 const desdeDefault = id => { const u = ultimoDia(id); return u || addDays(today(), -9); };
 
 function paintMaqs() {
-  root.querySelector('[data-maqs]').innerHTML = S.settings.maquinas.map(m => {
-    const u = ultimoDia(m.id);
-    return `<div class="card maq">
-      <div class="row between wrap"><div class="maq-n">${esc(m.nombre)}</div><span class="muted">${u ? `Último: ${dmy(u)}` : 'Sin importar'}</span></div>
-      <div class="row wrap improw">
-        <div class="field"><label>Importar desde</label><input class="input" type="date" data-desde="${m.id}" value="${desdeDefault(m.id)}" max="${today()}"></div>
-        <label class="btn big-imp${ocupado ? ' disabled' : ''}">${ICON.down}${ocupado ? 'Importando…' : 'Importar'}<input type="file" data-maq="${m.id}" hidden ${ocupado ? 'disabled' : ''}></label>
+  const ms = S.settings.maquinas;
+  if (!ms.some(m => m.id === maqSel)) maqSel = ms[0]?.id || null;
+  const m = ms.find(x => x.id === maqSel);
+  const u = m ? ultimoDia(m.id) : null;
+  root.querySelector('[data-maqs]').innerHTML = `<div class="card maq">
+      <div class="grid2">
+        <div class="field"><label>Máquina</label><button type="button" data-maqpick></button></div>
+        <div class="field"><label>Importar desde</label><input class="input" type="date" data-desde value="${m ? desdeDefault(m.id) : today()}" max="${today()}"></div>
       </div>
-      ${AYUDA[m.id] ? `<details class="ayuda"><summary>Cómo exportar el registro</summary><p>${AYUDA[m.id]}</p></details>` : ''}
-      <div class="impres" data-res="${m.id}">${resultado[m.id] || ''}</div>
+      <div class="row between wrap improw">
+        <span class="muted">${u ? `Último importado: ${dmy(u)}` : 'Sin importar'}</span>
+        <label class="btn big-imp${ocupado || !m ? ' disabled' : ''}">${ICON.down}${ocupado ? 'Importando…' : 'Importar registro'}<input type="file" data-file hidden ${ocupado || !m ? 'disabled' : ''}></label>
+      </div>
+      <details class="ayuda"><summary>Cómo obtener el registro</summary><p>${AYUDA}</p></details>
+      <div class="impres">${(m && resultado[m.id]) || ''}</div>
     </div>`;
-  }).join('');
+  listPicker(root.querySelector('[data-maqpick]'), {
+    items: () => [...S.settings.maquinas.map(x => ({ id: x.id, label: x.nombre })), { id: '__nueva', label: '+ Agregar máquina' }, ...(S.settings.maquinas.length > 1 ? [{ id: '__quitar', label: 'Quitar esta máquina' }] : [])],
+    getValue: () => maqSel,
+    onChange: async v => {
+      if (v === '__nueva') return nuevaMaquina();
+      if (v === '__quitar') return quitarMaquina();
+      maqSel = v; paintMaqs();
+    },
+  });
+}
+
+async function guardarMaquinas(lista) {
+  const st = structuredClone(S.settings); st.maquinas = lista;
+  const r = await api('/api/settings', { method: 'PUT', body: st }); S.settings = r.settings; syncNow();
+}
+async function nuevaMaquina() {
+  const r = await dialog({ title: 'Nueva máquina', fields: [{ name: 'n', label: 'Nombre de la máquina' }], async onSubmit(v) {
+    const n = (v.n || '').trim(); if (!n) throw new Error('Escribe el nombre');
+    const id = 'm' + Math.random().toString(36).slice(2, 9);
+    await guardarMaquinas([...S.settings.maquinas, { id, nombre: n, map: null }]);
+    return { id };
+  } });
+  if (r) { maqSel = r.id; paintMaqs(); }
+}
+async function quitarMaquina() {
+  const m = S.settings.maquinas.find(x => x.id === maqSel); if (!m) return;
+  const ok = await choice({ title: `¿Quitar ${m.nombre}?`, html: '<p class="sub-note">Los conteos ya importados se conservan.</p>', buttons: [{ label: 'Cancelar', value: false, cls: 'line' }, { label: 'Quitar', value: true }] });
+  if (!ok) return;
+  try { await guardarMaquinas(S.settings.maquinas.filter(x => x.id !== m.id)); maqSel = null; load(); } catch (e) { toast(e.message, true); }
 }
 
 async function load() {
@@ -63,8 +96,8 @@ async function load() {
 
 async function onFile(e) {
   const inp = e.target.closest('input[type=file]'); if (!inp || !inp.files.length || ocupado) return;
-  const maq = S.settings.maquinas.find(m => m.id === inp.dataset.maq);
-  const desde = root.querySelector(`[data-desde="${maq.id}"]`).value || desdeDefault(maq.id);
+  const maq = S.settings.maquinas.find(m => m.id === maqSel); if (!maq) return;
+  const desde = root.querySelector('[data-desde]').value || desdeDefault(maq.id);
   const file = inp.files[0]; inp.value = '';
   ocupado = true; paintMaqs();
   const res = { set innerHTML(h) { resultado[maq.id] = h; } };
@@ -72,7 +105,7 @@ async function onFile(e) {
   try {
     const parsed = parseCSV(await readText(file));
     const map = { ...guessMap(parsed.header), multiplicar: false, soloColor: true, soloOk: true, desde, hasta: today() };
-    if (map.color < 0) throw new Error('El archivo no tiene la columna de páginas a color. En Fiery agrega "Nº total de páginas impresas en color" o "Número de pasadas en color" al registro y vuelve a exportar.');
+    if (map.color < 0) throw new Error('El archivo no tiene una columna de páginas a color. Agrégala al registro en la impresora y vuelve a exportar.');
     if (map.fecha < 0) throw new Error('El archivo no tiene la fecha de los trabajos.');
 
     // 1. Conteo de páginas a color por día
@@ -89,8 +122,7 @@ async function onFile(e) {
     for (const g of grupos) {
       if (g.lineas.some(l => !l.precio_cents)) { sinPrecio++; continue; }
       const r = await api('/api/sales', { method: 'POST', body: {
-        id: uuid(), origen: g.origen, ts: g.ts, metodo: null, operador: 'Job Log',
-        nota: `Importado de ${maq.nombre}: ${g.titulos.join(', ')}`.slice(0, 300),
+        id: uuid(), origen: g.origen, ts: g.ts, metodo: 'pordefinir',
         items: g.lineas.map(l => ({ serv: l.serv, tam: l.tam, cant: l.cant, precio_cents: l.precio_cents, extra: l.extra || undefined })),
       } });
       if (r.duplicate) repetidas++; else creadas++;
@@ -98,8 +130,8 @@ async function onFile(e) {
     const pags = conteo.filas.reduce((a, x) => a + x.color, 0);
     const diasN = Object.keys(conteo.porDia).length;
     res.innerHTML = `<div class="diff ok">Del ${dmy(desde)} al ${dmy(today())}: <b>${int(pags)} páginas a color</b> en ${int(conteo.filas.length)} trabajos OK (${diasN} día${diasN === 1 ? '' : 's'}).<br>
-      <b>${creadas} órdenes nuevas</b> creadas como pendientes de cobro${repetidas ? ` · ${repetidas} ya estaban` : ''}${nuevosJobs < conteo.filas.length ? ` · ${int(conteo.filas.length - nuevosJobs)} trabajos ya importados antes` : ''}.
-      ${sinPrecio ? `<br>${sinPrecio} orden(es) no se crearon porque falta un precio en Ajustes.` : ''}</div>
+      <b>${creadas} órdenes nuevas</b> registradas como cobradas (método por definir)${repetidas ? ` · ${repetidas} ya estaban` : ''}${nuevosJobs < conteo.filas.length ? ` · ${int(conteo.filas.length - nuevosJobs)} trabajos ya importados antes` : ''}.
+      ${sinPrecio ? `<br>${sinPrecio} orden(es) no se crearon porque falta un precio en Cuenta → Productos y precios.` : ''}</div>
 `;
     toast(`${creadas} órdenes creadas · ${int(pags)} páginas a color`);
     emit('sale'); syncNow();

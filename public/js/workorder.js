@@ -1,10 +1,11 @@
 import { S } from './store.js';
+import { docAssets } from './assets.js';
 import { toast, ICON } from './ui/dom.js';
 import { openMenu } from './ui/menu.js';
-import { esc, money, dmy, METODOS, fmtCant } from './util.js';
+import { esc, money, dmy, METODOS, fmtCant, opTexto, numOrdenTxt } from './util.js';
 
 export const numOrden = n => String(n ?? 0).padStart(6, '0');
-const numDe = v => numOrden(v.numero ?? v.numero_anulado);
+const numDe = v => numOrdenTxt(v);
 const tasaTxt = () => `ITBMS ${S.settings?.itbms?.tasa ?? 7}%`;
 const prod = it => (it.tipo === 'imp' || it.tipo === 'cop') ? `${it.tipo === 'imp' ? 'Impresión' : 'Copia'} a color` : it.nombre;
 const tam = it => (it.tipo === 'imp' || it.tipo === 'cop') ? ({ carta: 'Carta 8.5 x 11', legal: 'Legal 8.5 x 14' }[it.tam] || it.nombre) : (it.tam || '—');
@@ -13,21 +14,28 @@ function estado(v) {
   if (v.estado === 'pendiente') return { t: 'PENDIENTE DE PAGO', d: '' };
   return { t: 'PAGADA', d: `${METODOS[v.metodo] || ''} · ${v.pagada_fecha ? dmy(v.pagada_fecha) : ''} ${v.pagada_hora || ''}`.trim() };
 }
-const opTxt = v => (v.operador && v.operador !== 'Job Log' ? v.operador : '—');
+const opTxt = v => opTexto(v, S.settings.operadores) || '—';
 function empresa() {
   const e = S.settings?.empresa || {};
   return { nombre: S.account.business, tel: e.telefono, correo: e.correo, dir: e.direccion, ruc: e.ruc, logo: e.logo || '' };
 }
 
+/** Sello según el estado: imagen subida o sello de texto. */
+function sello(v, a) {
+  if (v.anulada || v.estado === 'anulada') return { txt: 'ANULADO' };
+  if (v.estado === 'pendiente') return a.sello_pendiente ? { img: a.sello_pendiente } : { txt: 'PENDIENTE' };
+  return a.sello_pagado ? { img: a.sello_pagado } : { txt: 'CANCELADO' };
+}
+const imgDims = src => new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok({ w: i.width, h: i.height }); i.onerror = ko; i.src = src; });
+
 /* ---------- impresión ---------- */
-export function imprimirOrden(v) {
-  const e = empresa(), st = estado(v);
+export async function imprimirOrden(v) {
+  const e = empresa(), st = estado(v), a = await docAssets(), se = sello(v, a);
   const box = document.getElementById('print');
   box.innerHTML = `<div class="wo">
     <div class="wo-h">
       <div class="wo-emp">
-        ${e.logo ? `<img class="wo-logo" src="${esc(e.logo)}" alt="">` : ''}
-        <div class="wo-neg">${esc(e.nombre)}</div>
+        ${a.logo_doc ? `<img class="wo-logodoc" src="${esc(a.logo_doc)}" alt="${esc(e.nombre)}">` : `<div class="wo-neg">${esc(e.nombre)}</div>`}
         ${e.dir ? `<div>${esc(e.dir)}</div>` : ''}
         <div>${[e.tel && `Tel. ${esc(e.tel)}`, e.correo && esc(e.correo)].filter(Boolean).join(' · ')}</div>
         ${e.ruc ? `<div>RUC ${esc(e.ruc)}</div>` : ''}
@@ -49,17 +57,18 @@ export function imprimirOrden(v) {
     </table>
     <table class="wo-t">
       <thead><tr><th class="c">#</th><th>Producto o servicio</th><th>Tamaño</th><th>Detalle</th><th class="n">Cant.</th><th class="n">Precio</th><th class="n">Importe</th></tr></thead>
-      <tbody>${v.items.map((it, i) => `<tr><td class="c">${i + 1}</td><td>${esc(prod(it))}</td><td>${esc(tam(it))}</td><td>${esc(it.extra || '')}</td>
+      <tbody>${v.items.map((it, i) => `<tr><td class="c">${i + 1}</td><td>${esc(prod(it))}</td><td>${esc(tam(it))}</td><td class="pre">${esc(it.extra || '')}</td>
         <td class="n">${esc(fmtCant(it.cant, it.unidad))}</td><td class="n">${money(it.precio_cents)}</td><td class="n">${money(it.sub_cents)}</td></tr>`).join('')}</tbody>
     </table>
     <div class="wo-pie">
-      <div class="wo-nota"><div class="wo-sub">Nota</div><div>${esc(v.nota || '')}</div></div>
+      <div class="wo-nota"><div class="wo-sub">Nota</div><div class="pre">${esc(v.nota || '')}</div></div>
       <table class="wo-tot">
         <tr><th>Subtotal</th><td class="n">${money(v.subtotal_cents)}</td></tr>
         <tr><th>${tasaTxt()}</th><td class="n">${money(v.itbms_cents)}</td></tr>
         <tr class="g"><th>Total</th><td class="n">${money(v.total_cents)}</td></tr>
       </table>
     </div>
+    <div class="wo-sellorow">${se.img ? `<img class="wo-sello" src="${esc(se.img)}" alt="">` : `<div class="wo-sello txt">${se.txt}</div>`}</div>
     <div class="wo-firmas"><div>Entregado por</div><div>Recibido por</div></div>
   </div>`;
   setTimeout(() => window.print(), 50);
@@ -81,25 +90,23 @@ function loadPdf() {
 export async function descargarOrden(v) {
   let jspdf;
   try { jspdf = await loadPdf(); } catch (e) { return toast(e.message, true); }
-  const doc = new jspdf.jsPDF({ unit: 'mm', format: 'letter' });
-  const e = empresa(), st = estado(v);
+  const doc = new jspdf.jsPDF({ unit: 'mm', format: 'letter', orientation: 'portrait' });
+  const e = empresa(), st = estado(v), a = await docAssets(), se = sello(v, a);
   const L = 15, R = 216 - 15, W = R - L;
   const line = (x1, y1, x2, y2, w = 0.25, c = 150) => { doc.setDrawColor(c); doc.setLineWidth(w); doc.line(x1, y1, x2, y2); };
   const box = (x, y, w, h, fill) => { doc.setDrawColor(150); doc.setLineWidth(0.25); if (fill) { doc.setFillColor(...fill); doc.rect(x, y, w, h, 'FD'); } else doc.rect(x, y, w, h); };
   const txt = (t, x, y, o = {}) => { doc.setFont('helvetica', o.b ? 'bold' : 'normal'); doc.setFontSize(o.s || 9.5); doc.setTextColor(...(o.c || [20, 20, 20])); doc.text(String(t ?? ''), x, y, o.a ? { align: o.a, maxWidth: o.w } : (o.w ? { maxWidth: o.w } : undefined)); };
 
   // Encabezado: empresa (izq.) y datos de la orden (der.)
-  let y = 18, ex = L;
-  if (e.logo) {
+  let y = 18, ex = L, ey = y + 6;
+  if (a.logo_doc) {
     try {
-      const im = await new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = ko; i.src = e.logo; });
-      const h = 16, w = Math.min(40, h * im.width / im.height);
-      doc.addImage(e.logo, 'JPEG', L, y - 6, w, w * im.height / im.width);
-      ex = L + w + 4;
-    } catch { /* sin logo */ }
-  }
-  txt(e.nombre, ex, y, { b: true, s: 15 });
-  let ey = y + 6;
+      const d = await imgDims(a.logo_doc);
+      let w = 70, h = w * d.h / d.w; if (h > 22) { h = 22; w = h * d.w / d.h; }
+      doc.addImage(a.logo_doc, a.logo_doc.startsWith('data:image/png') ? 'PNG' : 'JPEG', L, y - 8, w, h);
+      ey = y - 8 + h + 5;
+    } catch { txt(e.nombre, ex, y, { b: true, s: 15 }); }
+  } else txt(e.nombre, ex, y, { b: true, s: 15 });
   if (e.dir) { txt(e.dir, ex, ey); ey += 5; }
   txt([e.tel && `Tel. ${e.tel}`, e.correo].filter(Boolean).join('  ·  '), ex, ey); ey += 5;
   if (e.ruc) { txt(`RUC ${e.ruc}`, ex, ey); ey += 5; }
@@ -157,7 +164,19 @@ export async function descargarOrden(v) {
     box(tx, y + i * 7, 34, 7, [239, 236, 229]); box(tx + 34, y + i * 7, tw - 34, 7, g ? [255, 236, 246] : null);
     txt(k, tx + 2, y + i * 7 + 4.8, { b: true, s: g ? 10 : 9 }); txt(val, R - 2, y + i * 7 + 4.8, { b: g, s: g ? 11 : 9, a: 'right' });
   });
-  y += 21 + 26;
+  y += 21 + 8;
+  // sello en el espacio libre
+  if (y + 30 > 262) { doc.addPage(); y = 30; }
+  if (se.img) {
+    try {
+      const d = await imgDims(se.img); const w = 62, h = w * d.h / d.w;
+      doc.addImage(se.img, se.img.startsWith('data:image/png') ? 'PNG' : 'JPEG', L + 4, y, w, Math.min(h, 28));
+    } catch { /* sin sello */ }
+  } else {
+    doc.setDrawColor(40); doc.setLineWidth(1); doc.roundedRect(L + 4, y + 2, 62, 16, 3, 3);
+    txt(se.txt, L + 35, y + 13, { b: true, s: 18, a: 'center', c: [40, 40, 40] });
+  }
+  y += 34;
   if (y > 262) { doc.addPage(); y = 40; }
   line(L, y, L + 70, y, 0.4, 20); line(R - 70, y, R, y, 0.4, 20);
   txt('Entregado por', L, y + 5, { s: 8.5, c: [100, 100, 100] }); txt('Recibido por', R - 70, y + 5, { s: 8.5, c: [100, 100, 100] });

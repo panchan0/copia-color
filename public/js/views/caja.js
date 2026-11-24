@@ -2,14 +2,23 @@ import { api } from '../api.js';
 import { S, today, on, emit, syncNow } from '../store.js';
 import { $, toast, choice, ICON } from '../ui/dom.js';
 import { metodoPicker, clientePicker, listPicker, operadorPicker } from '../ui/pickers.js';
-import { imprimirOrden, descargarOrden, numOrden } from '../workorder.js';
-import { esc, money, toCents, uuid, METODOS, CATS, calcItbms, fmtCant } from '../util.js';
+import { imprimirOrden, descargarOrden } from '../workorder.js';
+import { esc, money, toCents, uuid, METODOS, calcItbms, fmtCant, baseNombre, CATS2, catDe, opCode, numOrdenTxt } from '../util.js';
 
-let root, cat = 'color', servId = null, tamId = null, cant = 1, ticket = [], metodo = null, clientId = null, operador = null, paying = false;
+let root, cat = 'imp', base = null, enColor = true, editId = null, editNum = null, servId = null, tamId = null, cant = 1, ticket = [], metodo = null, clientId = null, operador = null, paying = false;
 let paints = {}, pendingId = null;
 try { operador = localStorage.getItem('cc_operador') || null; } catch { /* sin almacenamiento */ }
 
-const servicios = () => S.settings.catalogo.filter(s => s.cat === cat && !s.oculto && s.tams.some(t => !t.oculto));
+const servicios = () => S.settings.catalogo.filter(s => catDe(s) === cat && !s.oculto && s.tams.some(t => !t.oculto));
+const bases = () => [...new Set(servicios().map(s => baseNombre(s.nombre)))];
+const variantes = () => servicios().filter(s => baseNombre(s.nombre) === base);
+function elegirServ() {
+  const vs = variantes();
+  const s = vs.find(x => !!x.color === enColor) || vs[0] || null;
+  if (s) enColor = !!s.color;
+  servId = s?.id || null;
+  if (!s?.tams.some(t => t.id === tamId && !t.oculto)) tamId = s?.tams.find(t => !t.oculto)?.id || null;
+}
 const serv = () => S.settings.catalogo.find(s => s.id === servId) || null;
 const tam = () => serv()?.tams.find(t => t.id === tamId) || null;
 const tamsVisibles = () => (serv()?.tams || []).filter(t => !t.oculto);
@@ -42,13 +51,13 @@ function linea() {
   };
 }
 const lineaOk = () => { const l = linea(); return !!l && l.cant > 0 && l.precio_cents > 0; };
-const items = () => ticket.length ? ticket : (lineaOk() ? [linea()] : []);
+const items = () => ticket;
 const bruto = () => items().reduce((a, b) => a + b.sub_cents, 0);
 
 export function mount(el) {
   root = el;
   root.innerHTML = `
-  <div class="subhead"><button class="back" data-back>${ICON.left}Órdenes</button><h2>Nueva orden</h2></div>
+  <div class="subhead"><button class="back" data-back>${ICON.left}Volver</button><h2 data-tit>Nueva orden</h2></div>
   <div class="lay-caja">
     <div class="c-main">
       <div class="card">
@@ -59,7 +68,7 @@ export function mount(el) {
           <div class="field"><label for="ctDm">DM</label><input class="input" id="ctDm" maxlength="60" placeholder="@usuario"></div>
           <div class="field span2"><label for="ctEmail">Correo</label><input class="input" id="ctEmail" type="email" maxlength="120"></div>
           <div class="field"><label>Operador</label><button type="button" data-op></button></div>
-          <div class="field"><label for="oNota">Nota</label><input class="input" id="oNota" maxlength="300"></div>
+          <div class="field span2"><label for="oNota">Nota</label><textarea class="input ta" id="oNota" maxlength="600" rows="2"></textarea></div>
         </div>
       </div>
       <div class="card">
@@ -68,6 +77,7 @@ export function mount(el) {
           <div class="field"><label>Tipo</label><button type="button" data-cat></button></div>
           <div class="field"><label>Producto o servicio</label><button type="button" data-serv></button></div>
         </div>
+        <div class="field colsel" data-colsel><label>Color</label><div class="seg tema" data-col><button type="button" data-c="1">A color</button><button type="button" data-c="0">Blanco y negro</button></div></div>
         <div class="tamq">
           <div class="field"><label>Tamaño</label><button type="button" data-tam></button></div>
           <div class="field"><label for="qInput" data-qlabel>Cantidad</label><input class="input num" id="qInput" type="number" inputmode="decimal" min="0" value="1"></div>
@@ -81,7 +91,7 @@ export function mount(el) {
           <div class="field"><label for="libTam">Tamaño</label><input class="input" id="libTam" maxlength="40"></div>
           <label class="check"><input type="checkbox" id="libColor"> Es a color</label>
         </div>
-        <div class="field" style="margin-top:10px"><label for="lnExtra">Detalle</label><input class="input" id="lnExtra" maxlength="80"></div>
+        <div class="field" style="margin-top:10px"><label for="lnExtra">Detalle</label><textarea class="input ta" id="lnExtra" maxlength="200" rows="1"></textarea></div>
         <button class="btn line block" data-add style="margin-top:12px">${ICON.plus}Agregar a la orden</button>
       </div>
     </div>
@@ -104,12 +114,17 @@ export function mount(el) {
     </div>
   </div>`;
 
-  root.querySelector('[data-back]').onclick = () => { location.hash = '#ordenes'; };
-  paints.cat = listPicker(root.querySelector('[data-cat]'), { items: () => Object.entries(CATS).map(([id, label]) => ({ id, label })), getValue: () => cat, onChange: setCat });
+  root.querySelector('[data-back]').onclick = () => { location.hash = editId ? `#orden=${editId}` : '#ordenes'; };
+  paints.cat = listPicker(root.querySelector('[data-cat]'), { items: () => Object.entries(CATS2).filter(([id]) => S.settings.catalogo.some(x => catDe(x) === id && !x.oculto)).map(([id, label]) => ({ id, label })), getValue: () => cat, onChange: setCat });
   paints.serv = listPicker(root.querySelector('[data-serv]'), {
-    items: () => servicios().map(s => ({ id: s.id, label: s.nombre })), getValue: () => servId, placeholder: 'Selecciona',
-    onChange: v => { servId = v; tamId = tamsVisibles()[0]?.id || null; paints.tam(); paint(); },
+    items: () => bases().map(b => ({ id: b, label: b })), getValue: () => base, placeholder: 'Selecciona',
+    onChange: v => { base = v; elegirServ(); paints.tam(); paint(); },
   });
+  root.querySelector('[data-col]').addEventListener('click', e => {
+    const b = e.target.closest('button[data-c]'); if (!b || b.disabled) return;
+    enColor = b.dataset.c === '1'; elegirServ(); paints.tam(); paint();
+  });
+  root.querySelectorAll('textarea.ta').forEach(t => t.addEventListener('input', () => autoAlto(t)));
   paints.tam = listPicker(root.querySelector('[data-tam]'), {
     items: () => tamsVisibles().map(t => ({ id: t.id, label: t.nombre, sub: t.tramos ? `desde ${money(t.tramos[0].precio)}` : t.precio ? `${money(t.precio)}${serv().unidad === 'pie lineal' ? ' / pie' : ''}` : 'precio libre' })),
     getValue: () => tamId, placeholder: 'Selecciona', onChange: v => { tamId = v; paint(); },
@@ -132,22 +147,66 @@ export function mount(el) {
   on(what => {
     if (what === 'remote') {
       if (clientId && !S.clients.some(c => c.id === clientId)) clientId = null;
-      if (servId && !serv()) servId = null;
+      if (servId && !serv()) { servId = null; elegirServ(); }
       paints.cli(); paints.op(); paints.serv(); paints.tam(); paint();
     }
   });
-  setCat('color');
+  setCat('imp');
+}
+function autoAlto(t) { t.style.height = 'auto'; t.style.height = Math.min(220, t.scrollHeight + 2) + 'px'; }
+
+export function show() {
+  // operador guardado: convertir nombres antiguos a su código
+  const ops = S.settings.operadores || [];
+  const m = ops.find(o => o.n === operador || opCode(o) === operador);
+  operador = m ? opCode(m) : null;
+  root.querySelector('[data-tit]').textContent = editId ? `Editar orden N° ${editNum}` : 'Nueva orden';
+  root.querySelector('[data-pay]').classList.toggle('hide', !!editId);
+  root.querySelector('[data-met]').closest('.field').classList.toggle('hide', !!editId);
+  root.querySelector('[data-pend]').textContent = editId ? 'Guardar cambios' : 'Guardar pendiente';
+  root.querySelector('[data-pend]').classList.toggle('pay', !!editId);
+  paints.cat(); paints.serv(); paints.tam(); paints.cli(); paints.op(); paint();
+  root.querySelectorAll('textarea.ta').forEach(autoAlto);
 }
 
-export function show() { paints.cat(); paints.serv(); paints.tam(); paints.cli(); paints.op(); paint(); }
+/** Abrir el formulario para una orden nueva (limpio) o para editar una existente. */
+export function nueva() { if (editId) limpiar(); editId = null; editNum = null; }
+export function editar(v) {
+  limpiar();
+  editId = v.id; editNum = numOrdenTxt(v);
+  clientId = v.client_id || null;
+  const ops = S.settings.operadores || [];
+  const m = ops.find(o => o.n === v.operador || opCode(o) === v.operador);
+  operador = m ? opCode(m) : (v.operador && v.operador !== 'Job Log' ? v.operador : null);
+  setTimeout(() => {
+    $('#ctTel', root).value = v.tel || ''; $('#ctDm', root).value = v.dm || ''; $('#ctEmail', root).value = v.email || '';
+    $('#oNota', root).value = v.nota || '';
+    root.querySelectorAll('textarea.ta').forEach(autoAlto);
+  });
+  ticket = v.items.map(it => {
+    const s = S.settings.catalogo.find(x => x.id === it.tipo);
+    const t = s?.libre ? s.tams[0] : s?.tams.find(x => x.nombre === it.tam);
+    const pm = /^(\d+) págs \(tarifa[^)]*\)/.exec(it.extra || '');
+    const extraUser = pm ? (it.extra.slice(pm[0].length).replace(/^ · /, '')) : (it.extra || '');
+    return {
+      serv: s?.id || it.tipo, tam: t?.id || '', cant: it.cant, precio_cents: it.precio_cents, sub_cents: it.sub_cents,
+      paginas: pm ? Number(pm[1]) : undefined, nombre: it.nombre, tamano: it.tam, color: !!it.color, extraUser, extra: it.extra, unidad: it.unidad, tamLabel: it.tam,
+    };
+  });
+}
+function limpiar() {
+  pendingId = null; ticket = []; cant = 1; metodo = null; clientId = null;
+  ['recibe', 'ctTel', 'ctDm', 'ctEmail', 'oNota', 'libNombre', 'libTam', 'libPrecio', 'encPags', 'lnExtra'].forEach(id => { const e = $('#' + id, root); if (e) e.value = ''; });
+  paints.met?.(); paints.cli?.();
+}
 
 const normCant = n => serv()?.unidad === 'pie lineal' ? Math.max(0, Math.round(n * 100) / 100) : Math.max(0, Math.min(100000, Math.round(n)));
 function setCant(n) { cant = Math.max(serv()?.unidad === 'pie lineal' ? 0.5 : 1, normCant(n)); paint(); }
 
 function setCat(c) {
   cat = c;
-  const s = servicios()[0];
-  servId = s?.id || null; tamId = s?.tams.find(t => !t.oculto)?.id || null;
+  base = bases()[0] || null;
+  tamId = null; elegirServ();
   paints.cat?.(); paints.serv(); paints.tam(); paint();
 }
 
@@ -158,14 +217,17 @@ function llenarContacto() {
   $('#ctEmail', root).value = c?.email || '';
 }
 
+const s0libre = () => !!serv()?.libre;
 function agregar() {
   const l = linea();
   if (!l) return toast('Selecciona el producto y el tamaño', true);
   if (tam()?.tramos && !tramo(tam(), l.paginas)) return toast('Escribe las páginas del documento (máximo ' + tam().tramos.at(-1).hasta + ')', true);
   if (!(l.precio_cents > 0)) return toast('Escribe el precio', true);
   if (!(l.cant > 0)) return toast('Cantidad inválida', true);
-  ticket.push(l); cant = 1; $('#lnExtra', root).value = '';
-  paint(); toast('Línea agregada');
+  ticket.push(l); cant = 1; $('#lnExtra', root).value = ''; autoAlto($('#lnExtra', root));
+  if (s0libre()) { $('#libNombre', root).value = ''; $('#libTam', root).value = ''; $('#libPrecio', root).value = ''; }
+  paint();
+  const ult = root.querySelector('[data-lines] .tline:last-child'); ult?.animate?.([{ background: 'var(--acc2)' }, { background: 'transparent' }], { duration: 900 });
 }
 
 function paint() {
@@ -176,12 +238,13 @@ function paint() {
   root.querySelector('[data-qlabel]').textContent = UNIT_LABEL[s?.unidad] || 'Cantidad';
   const q = $('#qInput', root); if (document.activeElement !== q) q.value = cant;
   q.step = s?.unidad === 'pie lineal' ? '0.5' : '1';
-  const l = linea();
   root.querySelector('[data-add]').disabled = !lineaOk();
-  const vista = ticket.length ? ticket : (lineaOk() ? [l] : []);
-  root.querySelector('[data-lines]').innerHTML = vista.map((it, i) => `<div class="tline${ticket.length ? '' : ' prev'}"><span class="q num">${esc(fmtCant(it.cant, it.unidad))}×</span>
+  const vs = variantes(), hayC = vs.some(x => x.color), hayB = vs.some(x => !x.color);
+  root.querySelector('[data-colsel]').classList.toggle('hide', !(hayC && hayB) && cat !== 'imp');
+  root.querySelectorAll('[data-col] button').forEach(b => { const c = b.dataset.c === '1'; b.disabled = c ? !hayC : !hayB; b.classList.toggle('sel', c === !!serv()?.color); });
+  root.querySelector('[data-lines]').innerHTML = ticket.length ? ticket.map((it, i) => `<div class="tline"><span class="q num">${esc(fmtCant(it.cant, it.unidad))}×</span>
     <span class="d">${esc(it.nombre)} · ${esc(it.tamLabel)}<small>${money(it.precio_cents)} c/u${it.extra ? ' · ' + esc(it.extra) : ''}</small></span>
-    <b class="num">${money(it.sub_cents)}</b>${ticket.length ? `<button class="x" data-i="${i}" aria-label="Quitar">×</button>` : ''}</div>`).join('');
+    <b class="num">${money(it.sub_cents)}</b><button class="x" data-i="${i}" aria-label="Quitar">×</button></div>`).join('') : '<div class="empty sm">Agrega productos con el botón “Agregar a la orden”</div>';
   root.querySelector('[data-clear]').classList.toggle('hide', !ticket.length);
   const cx = calcItbms(bruto(), S.settings.itbms), tot = cx.total;
   root.querySelector('[data-total]').textContent = money(tot);
@@ -196,9 +259,29 @@ function paint() {
   root.querySelector('[data-pend]').disabled = paying || tot <= 0;
 }
 
+const cuerpoItems = its => its.map(it => ({ serv: it.serv, tam: it.tam, cant: it.cant, precio_cents: it.precio_cents, paginas: it.paginas, nombre: it.nombre, tamano: it.tamano, color: it.color, extra: it.extraUser }));
+
+async function guardarEdicion(its) {
+  if (paying) return;
+  paying = true; paint();
+  try {
+    const r = await api(`/api/sales/${encodeURIComponent(editId)}`, { method: 'PUT', body: {
+      client_id: clientId, operador, contacto_tel: $('#ctTel', root).value, contacto_dm: $('#ctDm', root).value,
+      contacto_email: $('#ctEmail', root).value, nota: $('#oNota', root).value, items: cuerpoItems(its),
+    } });
+    toast('Orden actualizada');
+    const id = r.sale.id;
+    limpiar(); editId = null;
+    emit('sale'); syncNow();
+    location.hash = `#orden=${id}`;
+  } catch (e) { toast(e.message, true); }
+  paying = false; paint();
+}
+
 async function guardar(cobrar) {
   const its = items();
-  if (!its.length) return toast('Agrega al menos una línea', true);
+  if (!its.length) { toast('Toca “Agregar a la orden” para sumar el producto', true); root.querySelector('[data-add]').focus(); return; }
+  if (editId) return guardarEdicion(its);
   if (cobrar && !metodo) { toast('Selecciona el método de pago', true); root.querySelector('[data-met]').click(); return; }
   if (!operador) { toast('Selecciona el operador', true); root.querySelector('[data-op]').click(); return; }
   if (paying) return;
@@ -208,12 +291,12 @@ async function guardar(cobrar) {
     const body = {
       id: pendingId, metodo: cobrar ? metodo : null, client_id: clientId, operador,
       contacto_tel: $('#ctTel', root).value, contacto_dm: $('#ctDm', root).value, contacto_email: $('#ctEmail', root).value, nota: $('#oNota', root).value,
-      items: its.map(it => ({ serv: it.serv, tam: it.tam, cant: it.cant, precio_cents: it.precio_cents, paginas: it.paginas, nombre: it.nombre, tamano: it.tamano, color: it.color, extra: it.extraUser })),
+      items: cuerpoItems(its),
     };
     const r = await api('/api/sales', { method: 'POST', body });
     const v = r.sale;
     await choice({
-      title: `${cobrar ? 'Orden cobrada' : 'Orden pendiente'} · N° ${numOrden(v.numero)}`,
+      title: `${cobrar ? 'Orden cobrada' : 'Orden pendiente'} · N° ${numOrdenTxt(v)}`,
       html: `<p class="sub-note" style="margin:-6px 0 4px">${esc(v.client_name || 'Contado')} · ${money(v.total_cents)}${cobrar ? ' · ' + METODOS[v.metodo] : ' · por cobrar'}</p>`,
       buttons: [
         { label: `${ICON.print}Imprimir orden`, cls: 'line', keep: true, onClick: () => imprimirOrden(v) },
@@ -222,9 +305,7 @@ async function guardar(cobrar) {
       ],
     });
     location.hash = '#ordenes';
-    pendingId = null; ticket = []; cant = 1; metodo = null; clientId = null;
-    ['recibe', 'ctTel', 'ctDm', 'ctEmail', 'oNota', 'libNombre', 'libTam', 'libPrecio', 'encPags', 'lnExtra'].forEach(id => { $('#' + id, root).value = ''; });
-    paints.met(); paints.cli();
+    limpiar();
     emit('sale'); syncNow();
   } catch (e) {
     toast(e.message, true);

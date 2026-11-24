@@ -5,7 +5,8 @@ import { bindCobrar, bindMetodo } from '../ui/cobrar.js';
 import { estadoTag, numTxt } from '../ui/salestable.js';
 import { imprimirOrden, descargarOrden } from '../workorder.js';
 import { S } from '../store.js';
-import { esc, money, dmy, METODOS, itemLabel, fmtCant } from '../util.js';
+import * as caja from './caja.js';
+import { esc, money, dmy, METODOS, itemLabel, fmtCant, opTexto } from '../util.js';
 
 let root, id = null, venta = null, armada = false, reqId = 0, volver = '#ordenes';
 
@@ -36,8 +37,8 @@ function paint() {
   const body = root.querySelector('[data-body]');
   if (!venta) { body.innerHTML = '<div class="card"><div class="empty">Cargando…</div></div>'; return; }
   const v = venta, anul = v.anulada || v.estado === 'anulada';
-  root.querySelector('[data-tit]').textContent = `Orden N° ${numTxt(v)}`;
-  const op = v.operador && v.operador !== 'Job Log' ? v.operador : '';
+  root.querySelector('[data-tit]').textContent = anul ? 'Orden anulada' : `Orden N° ${numTxt(v)}`;
+  const op = opTexto(v, S.settings.operadores);
   const contacto = [fila('Celular', esc(v.tel || '')), fila('DM', esc(v.dm || '')), fila('Correo', esc(v.email || '')), fila('RUC', esc(v.ruc || ''))].join('');
   body.innerHTML = `
   <div class="card ohero${anul ? ' void' : ''}">
@@ -63,6 +64,7 @@ function paint() {
   <div class="card oacts">
     ${!anul && v.estado === 'pendiente' ? `<button class="btn block cob" data-id="${esc(v.id)}">Cobrar ${money(v.total_cents)}</button>` : ''}
     ${!anul && v.estado === 'pagada' && v.metodo === 'pordefinir' ? `<button class="btn block met" data-id="${esc(v.id)}">Poner método de pago</button>` : ''}
+    ${anul ? '' : `<button class="btn line block" data-editar>${ICON.edit || ''}Editar orden</button>`}
     <div class="grid2">
       <button class="btn line" data-print>${ICON.print}Imprimir</button>
       <button class="btn line" data-pdf>${ICON.down}PDF</button>
@@ -75,6 +77,7 @@ async function onClick(e) {
   if (!venta) return;
   if (e.target.closest('[data-print]')) return imprimirOrden(venta);
   if (e.target.closest('[data-pdf]')) return descargarOrden(venta);
+  if (e.target.closest('[data-editar]')) { caja.editar(venta); location.hash = '#caja'; return; }
   if (!e.target.closest('[data-anular]')) return;
   if (!armada) { armada = true; paint(); setTimeout(() => { if (armada) { armada = false; paint(); } }, 4000); return; }
   armada = false;

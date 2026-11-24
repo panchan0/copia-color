@@ -119,3 +119,25 @@ export function analizarCierre(c, s) {
   if (c.efectivo_cents != null) out.difEf = c.efectivo_cents - s.met.efectivo.t;
   return out;
 }
+
+/* ---- Operadores: se muestran con su inicial y un número de dos dígitos ---- */
+export const opCode = o => `${(String(o?.n || '').trim()[0] || '?').toUpperCase()}${o?.c || ''}`;
+export function nuevoCodigoOp(ops) {
+  const usados = new Set(ops.map(o => o.c));
+  const libres = []; for (let i = 1; i <= 99; i++) { const c = String(i).padStart(2, '0'); if (!usados.has(c)) libres.push(c); }
+  return libres[Math.floor(Math.random() * libres.length)] || '00';
+}
+/** Texto del operador de una orden (inicial + número). */
+export function opTexto(v, ops) {
+  const o = v?.operador; if (!o || o === 'Job Log') return '';
+  const m = (ops || []).find(x => x.n === o);
+  return m ? opCode(m) : o;
+}
+
+/* ---- Productos: el mismo producto puede ser a color o blanco y negro ---- */
+export const baseNombre = n => String(n || '').replace(/\s*(a color|en blanco y negro|blanco y negro|b\/n)\b/gi, '').replace(/\s+/g, ' ').trim();
+export const CATS2 = { imp: 'Impresiones y copias', planos: 'Planos', enc: 'Encuadernación', otros: 'Otros' };
+export const catDe = s => (s.cat === 'color' || s.cat === 'bn' ? 'imp' : s.cat);
+
+/** Número de orden: las anuladas no llevan número. */
+export const numOrdenTxt = v => (v && v.numero != null && !v.anulada && v.estado !== 'anulada' ? String(v.numero).padStart(6, '0') : '—');

@@ -1,12 +1,13 @@
 import { api } from '../api.js';
 import { S, today, on, syncNow, emit } from '../store.js';
 import { deslizar } from '../ui/motion.js';
+import { nueva as nuevaOrden } from './caja.js';
 import { toast, ICON } from '../ui/dom.js';
 import { openCalendar } from '../ui/calendar.js';
 import { exportMenu } from '../ui/pickers.js';
 import { exportExcel, printReport } from '../export.js';
 import { salesTable, bindAbrir } from '../ui/salestable.js';
-import { esc, money, int, addDays, fechaLarga, cap, statsFromSales, METODOS, dayFromSummary } from '../util.js';
+import { esc, money, int, addDays, fechaLarga, cap, parseD, DIAS3, MES3, statsFromSales, METODOS, dayFromSummary } from '../util.js';
 
 let root, fecha = null, sales = [], cobrosPrev = [], maq = {}, loading = false, reqId = 0, anularPend = null;
 
@@ -28,6 +29,7 @@ export function mount(el) {
     <button class="btn ghost sm" data-hoy>Hoy</button>
     <div class="spacer"></div>
     <button class="btn line expb" data-exp aria-label="Descargar o imprimir">${ICON.down}<span>Descargar / Imprimir</span></button>
+    <button class="btn addb" data-nueva aria-label="Nueva orden">${ICON.plus}<span>Nueva orden</span></button>
   </div>
   <div class="strip s7">
     <div class="kpi k-total">
@@ -49,6 +51,7 @@ export function mount(el) {
     <div class="sub-note" data-prev-cob></div>
   </div>`;
 
+  root.querySelector('[data-nueva]').onclick = () => { nuevaOrden(); location.hash = '#caja'; };
   root.querySelector('[data-prev]').onclick = () => { setFecha(addDays(fecha, -1)); deslizar(root.querySelector('[data-cal] .lbl'), -1); };
   root.querySelector('[data-next]').onclick = () => { setFecha(addDays(fecha, 1)); deslizar(root.querySelector('[data-cal] .lbl'), 1); };
   root.querySelector('[data-hoy]').onclick = () => setFecha(today());
@@ -70,7 +73,8 @@ export function show() { paintHead(); load(); }
 
 function paintHead() {
   const t = today();
-  root.querySelector('.lbl').innerHTML = esc(cap(fechaLarga(fecha))) + (fecha === t ? ' <span class="pill">Hoy</span>' : '');
+  const corta = innerWidth < 560 ? (() => { const d = parseD(fecha); return `${DIAS3[d.getUTCDay()]} ${d.getUTCDate()} ${MES3[d.getUTCMonth()]}`; })() : fechaLarga(fecha);
+  root.querySelector('.lbl').innerHTML = esc(cap(corta)) + (fecha === t ? ' <span class="pill">Hoy</span>' : '');
   root.querySelector('[data-next]').disabled = fecha >= t;
   root.querySelector('[data-hoy]').classList.toggle('hide', fecha === t);
 }

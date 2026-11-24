@@ -18,11 +18,11 @@ export function json(data: unknown, status = 200, headers: HeadersInit = {}): Re
   });
 }
 
-export async function readJson<T = any>(req: Request): Promise<T> {
+export async function readJson<T = any>(req: Request, max = 200_000): Promise<T> {
   const ct = req.headers.get('content-type') || '';
   if (!ct.includes('application/json')) throw new HttpError(415, 'Se esperaba JSON');
   const text = await req.text();
-  if (text.length > 200_000) throw new HttpError(413, 'Solicitud demasiado grande');
+  if (text.length > max) throw new HttpError(413, 'Solicitud demasiado grande');
   try { return JSON.parse(text || '{}'); } catch { throw new HttpError(400, 'JSON inválido'); }
 }
 

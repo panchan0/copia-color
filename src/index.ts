@@ -2,6 +2,7 @@ import type { Ctx, Env } from './types';
 import { HttpError, json } from './http';
 import { requireAccount } from './auth';
 import * as R from './routes';
+import * as SEC from './security';
 import { ensureSchema } from './schema';
 
 type Handler = (c: Ctx) => Promise<Response>;
@@ -14,6 +15,11 @@ add('GET', '/api/rev', R.rev);
 add('PUT', '/api/account', R.updateAccount);
 add('POST', '/api/account/password', R.changePassword);
 add('POST', '/api/account/recovery', R.newRecoveryCode);
+add('POST', '/api/account/2fa/setup', SEC.totpSetup);
+add('POST', '/api/account/2fa/enable', SEC.totpEnable);
+add('POST', '/api/account/2fa/disable', SEC.totpDisable);
+add('GET', '/api/assets', SEC.getAssets);
+add('PUT', '/api/assets/:k', SEC.putAsset);
 add('POST', '/api/auth/logout-all', R.logoutAll);
 add('PUT', '/api/settings', R.putSettings);
 add('GET', '/api/clients', R.listClients);
@@ -23,6 +29,7 @@ add('DELETE', '/api/clients/:id', R.deleteClient);
 add('GET', '/api/sales', R.listSales);
 add('POST', '/api/sales', R.createSale);
 add('POST', '/api/sales/:id/void', R.voidSale);
+add('PUT', '/api/sales/:id', R.updateSale);
 add('POST', '/api/sales/:id/pay', R.paySale);
 add('POST', '/api/sales/:id/metodo', R.setMetodo);
 add('POST', '/api/sales/pay-many', R.payMany);
@@ -54,6 +61,8 @@ export default {
       if (p === '/api/auth/login' && m === 'POST') return await R.login(env, req, url);
       if (p === '/api/auth/logout' && m === 'POST') return await R.logout(env, req, url);
       if (p === '/api/auth/recover' && m === 'POST') return await R.recoverPassword(env, req, url);
+      if (p === '/api/auth/forgot' && m === 'POST') return await SEC.forgot(env, req, url);
+      if (p === '/api/auth/reset' && m === 'POST') return await SEC.resetPassword(env, req, url);
       if (p === '/api/config' && m === 'GET') return json({ signup: (env.ALLOW_SIGNUP || 'true') === 'true', version: env.CF_VERSION_METADATA?.id || 'dev' });
       for (const [method, re, h] of routes) {
         const match = re.exec(p);

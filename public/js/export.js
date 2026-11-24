@@ -1,6 +1,7 @@
 import { S } from './store.js';
+import { docAssets } from './assets.js';
 import { toast } from './ui/dom.js';
-import { esc, dmy, money, int, cap, fechaCorta, MESES, METODOS, sumDays, pad, prodList, fmtCant, itemLabel } from './util.js';
+import { esc, dmy, money, int, cap, fechaCorta, MESES, METODOS, sumDays, pad, prodList, fmtCant, itemLabel, opTexto, numOrdenTxt } from './util.js';
 import { numOrden } from './workorder.js';
 
 /* ---------- modelo común para Excel e impresión ---------- */
@@ -13,8 +14,8 @@ function modelo(p) {
   const ordenes = p.sales.slice().sort((a, b) => a.ts - b.ts).map(v => {
     const anul = v.anulada || v.estado === 'anulada';
     return {
-      numero: numOrden(v.numero ?? v.numero_anulado), fecha: `${dmy(v.fecha)} ${v.hora}`, cliente: v.client_name || 'CONTADO',
-      operador: v.operador && v.operador !== 'Job Log' ? v.operador : '', anul, pago: pagoTxt(v),
+      numero: numOrdenTxt(v), fecha: `${dmy(v.fecha)} ${v.hora}`, cliente: v.client_name || 'CONTADO',
+      operador: opTexto(v, S.settings.operadores), anul, pago: pagoTxt(v),
       sub: anul ? null : v.subtotal_cents / 100, itbms: anul ? null : (v.itbms_cents || 0) / 100, total: anul ? null : v.total_cents / 100,
       lineas: v.items.map(it => ({ prod: prodName(it) + (it.extra ? ` (${it.extra})` : ''), tam: tamName(it), cant: it.cant, cantTxt: fmtCant(it.cant, it.unidad), importe: anul ? null : it.sub_cents / 100 })),
     };
@@ -81,9 +82,11 @@ function hoja(wb, nombre, negocio, widths, { landscape = false, titleRow = null 
   ws.columns = widths.map(w => ({ width: w }));
   return ws;
 }
+let logoXls = null;
 function titulos(ws, ncols, negocio, linea2) {
   for (let r = 1; r <= 3; r++) ws.mergeCells(r, 1, r, ncols);
-  ws.getCell('A1').value = negocio; ws.getCell('A1').font = { bold: true, size: 16 };
+  if (logoXls) { ws.getRow(1).height = 46; ws.addImage(logoXls.id, { tl: { col: 0, row: 0.1 }, ext: { width: logoXls.w, height: logoXls.h } }); }
+  else { ws.getCell('A1').value = negocio; ws.getCell('A1').font = { bold: true, size: 16 }; }
   ws.getCell('A2').value = `${linea2}`; ws.getCell('A2').font = { bold: true, size: 12 };
   ws.getCell('A3').value = `${empresaTxt()}${empresaTxt() ? ' · ' : ''}Generado ${ahora()}`; ws.getCell('A3').font = { size: 10, color: { argb: 'FF6B6B73' } };
 }
@@ -112,6 +115,15 @@ export async function exportExcel(p) {
   try { ExcelJS = await loadExcelJS(); } catch (e) { return toast(e.message, true); }
   const m = modelo(p), negocio = S.account.business || 'Mi negocio';
   const wb = new ExcelJS.Workbook(); wb.creator = 'Color'; wb.created = new Date();
+  logoXls = null;
+  const a = await docAssets();
+  if (a.logo_doc) {
+    try {
+      const d = await new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = ko; i.src = a.logo_doc; });
+      const h = 56, w = Math.round(h * d.width / d.height);
+      logoXls = { id: wb.addImage({ base64: a.logo_doc, extension: a.logo_doc.startsWith('data:image/png') ? 'png' : 'jpeg' }), w: Math.min(w, 320), h: Math.min(w, 320) === w ? h : Math.round(320 * d.height / d.width) };
+    } catch { logoXls = null; }
+  }
   const linea2 = `${p.titulo} · ${p.periodo}`;
 
   /* Resumen: letra grande, vertical */
@@ -127,7 +139,7 @@ export async function exportExcel(p) {
 
   /* Órdenes: una fila por producto, datos de la orden combinados */
   const head = ['N.º', 'Fecha y hora', 'Cliente', 'Producto o servicio', 'Tamaño', 'Cant.', 'Importe', tasa(), 'Total orden', 'Pago'];
-  const ws = hoja(wb, 'Órdenes', negocio, [9, 18, 26, 36, 22, 9, 12, 11, 13, 16], { landscape: true, titleRow: 5 });
+  const ws = hoja(wb, 'Órdenes', negocio, [9, 18, 26, 36, 22, 9, 12, 11, 13, 16], { titleRow: 5 });
   titulos(ws, head.length, negocio, linea2);
   head.forEach((h, j) => celda(ws.getCell(5, j + 1), { bold: true, fill: HEADFILL, right: j >= 5 && j <= 8 }));
   ws.getRow(5).values = head;
@@ -180,14 +192,14 @@ function descargar(blob, nombre) {
 }
 
 /* ---------- Impresión ---------- */
-export function printReport(p) {
-  const m = modelo(p), negocio = S.account.business || '';
+export async function printReport(p) {
+  const m = modelo(p), negocio = S.account.business || '', a = await docAssets();
   const f$ = v => v == null ? '' : money(Math.round(v * 100));
   const tbl = (titulo, head, rows, kinds, totalLast = false) => `<div class="blk"><h2>${esc(titulo)}</h2><table class="grid">
     ${head ? `<thead><tr>${head.map((h, i) => `<th class="${i && kinds[i] !== 't' ? 'n' : ''}">${esc(h)}</th>`).join('')}</tr></thead>` : ''}
     <tbody>${rows.map((row, ri) => `<tr class="${totalLast && ri === rows.length - 1 ? 'tot' : ''}">${row.map((v, i) => `<td class="${i && kinds[i] !== 't' ? 'n' : ''}">${kinds[i] === '$' ? f$(v) : kinds[i] === 'n' ? int(v) : esc(v ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   let h = `<div class="rep">
-  <div class="rep-h"><div><h1>${esc(negocio)}</h1><div class="meta">${esc(empresaTxt())}</div></div><div class="rep-t"><b>${esc(p.titulo)}</b><div>${esc(p.periodo)}</div><div class="meta">Generado ${ahora()}</div></div></div>
+  <div class="rep-h"><div>${a.logo_doc ? `<img class="rp-logodoc" src="${esc(a.logo_doc)}" alt="${esc(negocio)}">` : `<h1>${esc(negocio)}</h1>`}<div class="meta">${esc(empresaTxt())}</div></div><div class="rep-t"><b>${esc(p.titulo)}</b><div>${esc(p.periodo)}</div><div class="meta">Generado ${ahora()}</div></div></div>
   <div class="sumgrid">
     ${tbl('Totales', null, m.totales, ['t', 't'])}
     ${tbl('Cobros por método de pago', ['Método', 'Cobros', 'Monto'], [...m.cobros, ['Total cobrado', m.cobros.reduce((a, x) => a + x[1], 0), m.cobros.reduce((a, x) => a + x[2], 0)]], ['t', 'n', '$'], true)}

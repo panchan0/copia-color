@@ -1,15 +1,16 @@
 import { api } from '../api.js';
 import { S, on, loadMe, syncNow } from '../store.js';
 import { $, toast, dialog, choice, ICON } from '../ui/dom.js';
-import { nuevoCliente, listPicker } from '../ui/pickers.js';
+import { nuevoCliente, listPicker, crearOperador } from '../ui/pickers.js';
 import * as maquinas from './maquinas.js';
 import { transicion } from '../ui/motion.js';
 import { ci } from '../icons.js';
 import { prefs, guardarPref } from '../tema.js';
+import { docAssets, guardarAsset, prepararImagen } from '../assets.js';
 function paintPref() { const p = prefs(); root.querySelectorAll('[data-tema] button').forEach(b => b.classList.toggle('sel', b.dataset.t === p.tema)); root.querySelector('[data-calma]').checked = p.calma; }
 import { salesTable, bindAbrir } from '../ui/salestable.js';
 import { today } from '../store.js';
-import { money, int, MESES, cap, startOfMonth, endOfMonth, addMonths, parseD } from '../util.js';
+import { money, int, MESES, cap, startOfMonth, endOfMonth, addMonths, parseD, opCode } from '../util.js';
 
 let anMes = null, anReq = 0;
 async function loadAnuladas() {
@@ -36,7 +37,7 @@ const ZONAS = ['America/Panama', 'America/Bogota', 'America/Costa_Rica', 'Americ
 
 export function mount(el) {
   root = el;
-  const sub = (id, titulo, cuerpo) => `<div class="ajp hide" data-p="${id}"><div class="subhead"><button class="back" data-home>${ICON.left}Ajustes</button><h2>${titulo}</h2></div>${cuerpo}</div>`;
+  const sub = (id, titulo, cuerpo) => `<div class="ajp hide" data-p="${id}"><div class="subhead"><button class="back" data-home>${ICON.left}Cuenta</button><h2>${titulo}</h2></div>${cuerpo}</div>`;
   const fila = (id, titulo) => `<button class="srow" data-go="${id}"><span class="sico">${ci(id)}</span><span class="st">${titulo}</span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>`;
   root.innerHTML = `
   <div class="ajp" data-p="home">
@@ -63,6 +64,15 @@ export function mount(el) {
         <div class="field span2"><label for="eDir">Dirección</label><input class="input" id="eDir" maxlength="120"></div>
       </div>
       <button class="btn" style="margin-top:14px" data-neg>Guardar</button>
+    </div>
+    <div class="card">
+      <div class="label">Órdenes de trabajo y reportes</div>
+      <div class="docimgs">
+        ${[['logo_doc', 'Logo'], ['sello_pagado', 'Sello de cobrado'], ['sello_pendiente', 'Sello de pendiente']].map(([k, l]) => `<div class="docimg">
+          <div class="dprev" data-prev="${k}"></div>
+          <div class="dinfo"><b>${l}</b><div class="row wrap"><label class="btn line sm">Cambiar<input type="file" accept="image/*" data-asset="${k}" hidden></label><button class="lnk an hide" data-assetdel="${k}">Quitar</button></div></div>
+        </div>`).join('')}
+      </div>
     </div>`)}
   ${sub('precios', 'Productos y precios', `<div class="card">
       <div class="ptools"><button type="button" data-pcat></button><button class="btn line sm" data-newserv>${ICON.plus}Nuevo</button><button class="btn sm" data-save>Guardar</button></div>
@@ -98,6 +108,7 @@ export function mount(el) {
       <label class="srow sw"><span class="st">Reducir animaciones</span><input type="checkbox" class="switch" data-calma></label>
     </div>`)}
   ${sub('cuenta', 'Cuenta y seguridad', `<div class="card setlist">
+      <button class="srow" data-2fa><span class="st">Verificación en dos pasos<small data-2fast></small></span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
       <button class="srow" data-recode><span class="st">Código de recuperación<small data-recst></small></span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
       <button class="srow" data-pwd><span class="st">Cambiar contraseña</span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
       <button class="srow" data-out><span class="st">Cerrar sesión</span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
@@ -110,11 +121,20 @@ export function mount(el) {
   root.querySelector('[data-aprev]').onclick = () => { anMes = addMonths(anMes, -1); loadAnuladas(); };
   root.querySelector('[data-anext]').onclick = () => { anMes = addMonths(anMes, 1); loadAnuladas(); };
   root.addEventListener('click', e => {
-    const g = e.target.closest('[data-go]'); if (g) return transicion('abrir', () => ir(g.dataset.go));
-    if (e.target.closest('[data-home]')) transicion('cerrar', () => ir('home'));
+    const act = () => root.querySelector('.ajp:not(.hide)');
+    const g = e.target.closest('[data-go]'); if (g) return transicion('abrir', () => ir(g.dataset.go), act);
+    if (e.target.closest('[data-home]')) transicion('cerrar', () => ir('home'), act);
   });
   paintCat = listPicker(root.querySelector('[data-pcat]'), { items: () => Object.entries(CATS).map(([id, label]) => ({ id, label })), getValue: () => catAbierta, onChange: v => { leerPrecios(); catAbierta = v; paintPrecios(); } });
   root.querySelector('[data-logo]').addEventListener('change', subirLogo);
+  root.querySelectorAll('[data-asset]').forEach(i => i.addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    try { const d = await prepararImagen(f, { max: e.target.dataset.asset === 'logo_doc' ? 900 : 700 }); await guardarAsset(e.target.dataset.asset, d); toast('Imagen guardada'); paintDocs(); }
+    catch (err) { toast(err.message, true); }
+  }));
+  root.querySelectorAll('[data-assetdel]').forEach(b => b.onclick = async () => {
+    try { await guardarAsset(b.dataset.assetdel, ''); toast('Imagen quitada'); paintDocs(); } catch (err) { toast(err.message, true); }
+  });
   root.querySelector('[data-logodel]').onclick = () => guardarLogo('');
   root.querySelectorAll('[data-save]').forEach(b => b.onclick = guardarAjustes);
   root.querySelector('[data-neg]').onclick = guardarNegocio;
@@ -128,6 +148,7 @@ export function mount(el) {
   ['aMeta', 'aDias', 'aSem'].forEach(id => $('#' + id, root).addEventListener('input', paintInfo));
   root.querySelector('[data-pwd]').onclick = cambiarPwd;
   root.querySelector('[data-recode]').onclick = codigoRecuperacion;
+  root.querySelector('[data-2fa]').onclick = dosPasos;
   root.querySelector('[data-out]').onclick = () => onLogout(false);
   root.querySelector('[data-outall]').onclick = async () => {
     const ok = await dialog({ title: 'Cerrar sesión en todos los dispositivos', html: '<p class="sub-note">Tendrás que volver a iniciar sesión en cada equipo.</p>', ok: 'Cerrar todas', danger: true });
@@ -145,6 +166,7 @@ function ir(p) {
   root.querySelectorAll('.ajp').forEach(x => x.classList.toggle('hide', x.dataset.p !== p));
   if (p === 'home' || p === 'negocio' || p === 'meta' || p === 'precios') fill();
   if (p === 'clientes') paintClientes();
+  if (p === 'negocio') paintDocs();
   if (p === 'operadores') paintOps();
   if (p === 'importar') maquinas.show();
   if (p === 'anuladas') loadAnuladas();
@@ -305,7 +327,7 @@ function body() {
 
 async function guardarAjustes(e) {
   const b = e.currentTarget; b.disabled = true;
-  try { const r = await api('/api/settings', { method: 'PUT', body: body() }); S.settings = r.settings; toast('Ajustes guardados'); syncNow(); fill(); }
+  try { const r = await api('/api/settings', { method: 'PUT', body: body() }); S.settings = r.settings; toast("Guardado"); syncNow(); fill(); }
   catch (err) { toast(err.message, true); }
   b.disabled = false;
 }
@@ -322,22 +344,14 @@ async function guardarNegocio(e) {
 
 function paintOps() {
   const ops = S.settings.operadores || [];
-  root.querySelector('[data-ops]').innerHTML = ops.length ? ops.map(o => `<div class="c"><div class="n"><b>${esc(o)}</b></div><button class="btn danger sm" data-delop="${esc(o)}">Quitar</button></div>`).join('') : '<div class="empty">Agrega a las personas que atienden</div>';
+  root.querySelector('[data-ops]').innerHTML = ops.length ? ops.map(o => `<div class="c"><span class="opbadge num">${esc(opCode(o))}</span><div class="n"><b>${esc(o.n)}</b></div><button class="btn danger sm" data-delop="${esc(o.n)}">Quitar</button></div>`).join('') : '<div class="empty">Agrega a las personas que atienden</div>';
 }
 async function agregarOperador() {
-  const r = await dialog({
-    title: 'Nuevo operador', fields: [{ name: 'name', label: 'Nombre' }],
-    async onSubmit(v) {
-      const name = (v.name || '').trim(); if (!name) throw new Error('Escribe el nombre');
-      const st = structuredClone(S.settings); if (!st.operadores.includes(name)) st.operadores.push(name);
-      const res = await api('/api/settings', { method: 'PUT', body: st }); S.settings = res.settings; syncNow();
-    },
-  });
-  if (r) paintOps();
+  if (await crearOperador()) paintOps();
 }
 async function quitarOperador(e) {
   const b = e.target.closest('[data-delop]'); if (!b) return;
-  const st = structuredClone(S.settings); st.operadores = st.operadores.filter(o => o !== b.dataset.delop);
+  const st = structuredClone(S.settings); st.operadores = st.operadores.filter(o => o.n !== b.dataset.delop);
   try { const res = await api('/api/settings', { method: 'PUT', body: st }); S.settings = res.settings; syncNow(); paintOps(); }
   catch (err) { toast(err.message, true); }
 }
@@ -386,7 +400,53 @@ async function codigoRecuperacion() {
     buttons: [{ label: 'Copiar', value: 'c', cls: 'line' }, { label: 'Listo', value: 'ok' }],
   }).then(v => { if (v === 'c') navigator.clipboard?.writeText(r.code).then(() => toast('Código copiado'), () => {}); });
 }
-function paintRecSt() { const e = root.querySelector('[data-recst]'); if (e) e.textContent = S.account.recovery ? 'Activo' : 'Sin crear'; }
+async function paintDocs() {
+  const a = await docAssets();
+  const def = { sello_pagado: 'CANCELADO', sello_pendiente: 'PENDIENTE', logo_doc: '' };
+  root.querySelectorAll('[data-prev]').forEach(d => {
+    const k = d.dataset.prev;
+    d.innerHTML = a[k] ? `<img src="${esc(a[k])}" alt="">` : def[k] ? `<span class="sello-def">${def[k]}</span>` : `<span class="muted">${esc(S.account.business)}</span>`;
+    root.querySelector(`[data-assetdel="${k}"]`).classList.toggle('hide', !a[k]);
+  });
+}
+function paintRecSt() {
+  const e = root.querySelector('[data-recst]'); if (e) e.textContent = S.account.recovery ? 'Activo' : 'Sin crear';
+  const f = root.querySelector('[data-2fast]'); if (f) f.textContent = S.account.totp ? 'Activada' : 'Desactivada';
+}
+
+let qrLib = null;
+function cargarQR() {
+  if (window.qrcode) return Promise.resolve(window.qrcode);
+  return qrLib ||= new Promise((ok, ko) => { const s = document.createElement('script'); s.src = '/vendor/qrcode.min.js'; s.onload = () => ok(window.qrcode); s.onerror = () => { qrLib = null; ko(new Error('No se pudo cargar el código QR')); }; document.head.appendChild(s); });
+}
+
+async function dosPasos() {
+  if (S.account.totp) {
+    const r = await dialog({
+      title: 'Desactivar verificación en dos pasos',
+      fields: [{ name: 'actual', label: 'Tu contraseña', type: 'password', autocomplete: 'current-password' }, { name: 'code', label: 'Código de la aplicación', placeholder: '000000' }],
+      ok: 'Desactivar', onSubmit: v => api('/api/account/2fa/disable', { method: 'POST', body: v }),
+    });
+    if (r) { S.account.totp = false; paintRecSt(); toast('Verificación en dos pasos desactivada'); }
+    return;
+  }
+  const r = await dialog({
+    title: 'Activar verificación en dos pasos',
+    html: '<p class="sub-note">Al entrar se pedirá, además de la contraseña, un código de una aplicación como Google Authenticator, Microsoft Authenticator o las Contraseñas del iPhone.</p>',
+    fields: [{ name: 'actual', label: 'Tu contraseña', type: 'password', autocomplete: 'current-password' }],
+    ok: 'Continuar', onSubmit: v => api('/api/account/2fa/setup', { method: 'POST', body: v }),
+  });
+  if (!r?.secret) return;
+  let svg = '';
+  try { const q = (await cargarQR())(0, 'M'); q.addData(r.uri); q.make(); svg = q.createSvgTag(4, 8); } catch { /* sin QR */ }
+  const ok = await dialog({
+    title: 'Escanea el código',
+    html: `<div class="qrbox">${svg}</div><p class="sub-note">Escanéalo con la aplicación de autenticación${'ontouchstart' in window ? ' o toca <a href="' + esc(r.uri) + '">agregar a la app</a>' : ''}. También puedes escribir esta clave:</p><div class="reccode num">${esc(r.secret.match(/.{1,4}/g).join(' '))}</div>`,
+    fields: [{ name: 'code', label: 'Código de 6 dígitos que muestra la app', placeholder: '000000' }],
+    ok: 'Activar', onSubmit: v => api('/api/account/2fa/enable', { method: 'POST', body: v }),
+  });
+  if (ok) { S.account.totp = true; paintRecSt(); toast('Verificación en dos pasos activada'); }
+}
 
 async function cambiarPwd() {
   const r = await dialog({

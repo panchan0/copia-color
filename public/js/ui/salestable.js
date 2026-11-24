@@ -1,7 +1,8 @@
-import { esc, money, METODOS, itemLabel, fmtCant, dmy } from '../util.js';
+import { esc, money, METODOS, itemLabel, fmtCant, dmy, opTexto, numOrdenTxt } from '../util.js';
+import { S } from '../store.js';
 import { numOrden } from '../workorder.js';
 
-export const numTxt = v => v.numero != null ? numOrden(v.numero) : (v.numero_anulado != null ? numOrden(v.numero_anulado) : '—');
+export const numTxt = v => numOrdenTxt(v);
 
 export function estadoTag(v) {
   if (v.anulada || v.estado === 'anulada') return '<span class="tag t-anul">Anulada</span>';
@@ -14,7 +15,7 @@ export function salesTable(sales, { empty = 'Sin órdenes', loading = false, fec
   if (loading) return '<div class="empty">Cargando…</div>';
   if (!sales.length) return `<div class="empty">${empty}</div>`;
   const det = v => v.items.map(it => `${esc(fmtCant(it.cant, it.unidad))} × ${esc(itemLabel(it))}${it.extra ? ` (${esc(it.extra)})` : ''}`).join('<br>');
-  const op = v => v.operador && v.operador !== 'Job Log' ? v.operador : '';
+  const op = v => opTexto(v, S.settings?.operadores);
   return `<table class="stbl"><thead><tr>
     <th>N°</th><th>${fecha ? 'Fecha' : 'Hora'}</th><th>Cliente</th><th>Producto o servicio</th><th>Estado</th>${pago ? '<th class="dk">Cobrada</th>' : ''}<th class="dk">Operador</th><th class="n">Total</th><th></th></tr></thead><tbody>
     ${sales.map(v => {

@@ -45,12 +45,15 @@ export function normalize(d: any): Settings {
     const logo = d.empresa.logo;
     if (typeof logo === 'string' && logo.length <= 80_000 && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(logo)) s.empresa.logo = logo;
   }
-  if (Array.isArray(d?.operadores)) s.operadores = [...new Set(d.operadores.map((x: unknown) => str(x, 60)).filter(Boolean))].slice(0, 50) as string[];
+  if (Array.isArray(d?.operadores)) s.operadores = normOps(d.operadores);
   if (Array.isArray(d?.maquinas)) {
-    for (const m of s.maquinas) {
-      const sv = d.maquinas.find((x: any) => x?.id === m.id);
-      if (sv) { if (str(sv.nombre, 60)) m.nombre = str(sv.nombre, 60); if (sv.map && typeof sv.map === 'object' && JSON.stringify(sv.map).length < 4000) m.map = sv.map; }
+    const lista: Maquina[] = [];
+    for (const sv of d.maquinas.slice(0, 12)) {
+      const id = str(sv?.id, 20);
+      if (!/^[a-z0-9_]{2,20}$/.test(id) || lista.some(m => m.id === id)) continue;
+      lista.push({ id, nombre: str(sv.nombre, 60) || 'Máquina', map: sv.map && typeof sv.map === 'object' && JSON.stringify(sv.map).length < 4000 ? sv.map : null });
     }
+    if (lista.length) s.maquinas = lista;
   }
   return s;
 }
@@ -68,4 +71,26 @@ export function validateSettings(d: any): Settings {
 
 export async function bumpRev(env: Env, accountId: string) {
   return env.DB.prepare('UPDATE accounts SET rev = rev + 1 WHERE id = ?').bind(accountId);
+}
+
+/** Operadores con un número de dos dígitos que los identifica (se muestra la inicial + número). */
+function normOps(lista: unknown[]): { n: string; c: string }[] {
+  const out: { n: string; c: string }[] = [], usados = new Set<string>(), vistos = new Set<string>();
+  const pend: string[] = [];
+  for (const x of lista.slice(0, 60)) {
+    const n = str(typeof x === 'string' ? x : (x as any)?.n, 60);
+    if (!n || vistos.has(n.toLowerCase())) continue;
+    vistos.add(n.toLowerCase());
+    const c = typeof x === 'object' && x && /^\d{2}$/.test(String((x as any).c)) ? String((x as any).c) : '';
+    if (c && !usados.has(c)) { usados.add(c); out.push({ n, c }); } else { out.push({ n, c: '' }); pend.push(n); }
+  }
+  for (const o of out) {
+    if (o.c) continue;
+    // número estable a partir del nombre, sin repetir
+    let h = 0; for (const ch of o.n) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    let k = (h % 99) + 1;
+    for (let i = 0; i < 99 && usados.has(String(k).padStart(2, '0')); i++) k = (k % 99) + 1;
+    o.c = String(k).padStart(2, '0'); usados.add(o.c);
+  }
+  return out.slice(0, 50);
 }
