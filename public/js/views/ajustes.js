@@ -1,8 +1,12 @@
 import { api } from '../api.js';
 import { S, on, loadMe, syncNow } from '../store.js';
-import { $, toast, dialog, ICON } from '../ui/dom.js';
+import { $, toast, dialog, choice, ICON } from '../ui/dom.js';
 import { nuevoCliente, listPicker } from '../ui/pickers.js';
 import * as maquinas from './maquinas.js';
+import { transicion } from '../ui/motion.js';
+import { ci } from '../icons.js';
+import { prefs, guardarPref } from '../tema.js';
+function paintPref() { const p = prefs(); root.querySelectorAll('[data-tema] button').forEach(b => b.classList.toggle('sel', b.dataset.t === p.tema)); root.querySelector('[data-calma]').checked = p.calma; }
 import { salesTable, bindAbrir } from '../ui/salestable.js';
 import { today } from '../store.js';
 import { money, int, MESES, cap, startOfMonth, endOfMonth, addMonths, parseD } from '../util.js';
@@ -25,7 +29,7 @@ async function loadAnuladas() {
 }
 import { esc, centsToInput, toCents, CATS } from '../util.js';
 
-let root, onLogout = () => {}, catAbierta = 'color', pagina = 'home', paintCat = () => {};
+let root, onLogout = () => {}, catAbierta = 'color', pag = 'home', paintCat = () => {};
 export const setLogout = f => { onLogout = f; };
 
 const ZONAS = ['America/Panama', 'America/Bogota', 'America/Costa_Rica', 'America/Mexico_City', 'America/Guatemala', 'America/Caracas', 'America/Lima', 'America/Santo_Domingo', 'America/New_York'];
@@ -33,19 +37,20 @@ const ZONAS = ['America/Panama', 'America/Bogota', 'America/Costa_Rica', 'Americ
 export function mount(el) {
   root = el;
   const sub = (id, titulo, cuerpo) => `<div class="ajp hide" data-p="${id}"><div class="subhead"><button class="back" data-home>${ICON.left}Ajustes</button><h2>${titulo}</h2></div>${cuerpo}</div>`;
-  const fila = (id, titulo, ico) => `<button class="srow" data-go="${id}"><span class="sico">${ico}</span><span class="st">${titulo}</span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>`;
+  const fila = (id, titulo) => `<button class="srow" data-go="${id}"><span class="sico">${ci(id)}</span><span class="st">${titulo}</span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>`;
   root.innerHTML = `
   <div class="ajp" data-p="home">
     <div class="card acct-head"><div class="alogo" data-alogo></div><div class="aname"><b data-aneg></b><small data-email></small></div></div>
     <div class="card setlist">
-      ${fila('negocio', 'Negocio y logo', '<svg viewBox="0 0 24 24"><path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6"/></svg>')}
-      ${fila('precios', 'Productos y precios', '<svg viewBox="0 0 24 24"><path d="M20 12l-8 8-9-9V3h8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>')}
-      ${fila('clientes', 'Clientes', '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21c1-4 4-6 7-6s6 2 7 6M17 11a3 3 0 1 0 0-6M22 21c-.6-2.6-2-4.4-4-5.3"/></svg>')}
-      ${fila('operadores', 'Operadores', '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>')}
-      ${fila('meta', 'Meta e impuesto', '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>')}
-      ${fila('importar', 'Importar registros de máquinas', '<svg viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 17v4h10v-4"/></svg>')}
-      ${fila('anuladas', 'Órdenes anuladas', '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg>')}
-      ${fila('cuenta', 'Cuenta y seguridad', '<svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>')}
+      ${fila('negocio', 'Negocio y logo')}
+      ${fila('precios', 'Productos y precios')}
+      ${fila('clientes', 'Clientes')}
+      ${fila('operadores', 'Operadores')}
+      ${fila('meta', 'Meta e impuesto')}
+      ${fila('importar', 'Importar registros de máquinas')}
+      ${fila('anuladas', 'Órdenes anuladas')}
+      ${fila('personalizar', 'Personalizar')}
+      ${fila('cuenta', 'Cuenta y seguridad')}
     </div>
   </div>
   ${sub('negocio', 'Negocio y logo', `<div class="card">
@@ -85,18 +90,28 @@ export function mount(el) {
   ${sub('importar', 'Importar registros de máquinas', '<div data-maq></div>')}
   ${sub('anuladas', 'Órdenes anuladas', `<div class="toolbar"><button class="iconbtn" data-aprev aria-label="Mes anterior">${ICON.left}</button><div class="datebtn" data-ames></div><button class="iconbtn" data-anext aria-label="Mes siguiente">${ICON.right}</button></div>
     <div class="card"><div class="ohead"><span data-an1></span><b class="num" data-an2></b></div><div data-alist></div></div>`)}
+  ${sub('personalizar', 'Personalizar', `<div class="card">
+      <div class="label">Tema</div>
+      <div class="seg tema" data-tema><button data-t="claro">${ci('sun')}Claro</button><button data-t="oscuro">${ci('moon')}Oscuro</button><button data-t="auto">${ci('sunmoon')}Automático</button></div>
+    </div>
+    <div class="card setlist">
+      <label class="srow sw"><span class="st">Reducir animaciones</span><input type="checkbox" class="switch" data-calma></label>
+    </div>`)}
   ${sub('cuenta', 'Cuenta y seguridad', `<div class="card setlist">
+      <button class="srow" data-recode><span class="st">Código de recuperación<small data-recst></small></span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
       <button class="srow" data-pwd><span class="st">Cambiar contraseña</span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
       <button class="srow" data-out><span class="st">Cerrar sesión</span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
       <button class="srow danger" data-outall><span class="st">Cerrar sesión en todos los dispositivos</span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
     </div>`)}`;
   maquinas.mount(root.querySelector('[data-maq]'));
+  root.querySelector('[data-tema]').addEventListener('click', e => { const b = e.target.closest('button[data-t]'); if (!b) return; guardarPref({ tema: b.dataset.t }); paintPref(); });
+  root.querySelector('[data-calma]').addEventListener('change', e => { guardarPref({ calma: e.target.checked }); paintPref(); });
   bindAbrir(root.querySelector('[data-alist]'));
   root.querySelector('[data-aprev]').onclick = () => { anMes = addMonths(anMes, -1); loadAnuladas(); };
   root.querySelector('[data-anext]').onclick = () => { anMes = addMonths(anMes, 1); loadAnuladas(); };
   root.addEventListener('click', e => {
-    const g = e.target.closest('[data-go]'); if (g) return ir(g.dataset.go);
-    if (e.target.closest('[data-home]')) ir('home');
+    const g = e.target.closest('[data-go]'); if (g) return transicion('abrir', () => ir(g.dataset.go));
+    if (e.target.closest('[data-home]')) transicion('cerrar', () => ir('home'));
   });
   paintCat = listPicker(root.querySelector('[data-pcat]'), { items: () => Object.entries(CATS).map(([id, label]) => ({ id, label })), getValue: () => catAbierta, onChange: v => { leerPrecios(); catAbierta = v; paintPrecios(); } });
   root.querySelector('[data-logo]').addEventListener('change', subirLogo);
@@ -112,25 +127,28 @@ export function mount(el) {
   root.querySelector('[data-clist]').addEventListener('click', onCliente);
   ['aMeta', 'aDias', 'aSem'].forEach(id => $('#' + id, root).addEventListener('input', paintInfo));
   root.querySelector('[data-pwd]').onclick = cambiarPwd;
+  root.querySelector('[data-recode]').onclick = codigoRecuperacion;
   root.querySelector('[data-out]').onclick = () => onLogout(false);
   root.querySelector('[data-outall]').onclick = async () => {
     const ok = await dialog({ title: 'Cerrar sesión en todos los dispositivos', html: '<p class="sub-note">Tendrás que volver a iniciar sesión en cada equipo.</p>', ok: 'Cerrar todas', danger: true });
     if (ok) onLogout(true);
   };
-  on(what => { if (what === 'remote') { if (!root.closest('.view.on') || pagina === 'home') fill(); paintClientes(); paintOps(); } });
+  on(what => { if (what === 'remote') { if (!root.closest('.view.on') || pag === 'home') fill(); paintClientes(); paintOps(); } });
 }
 
 let catalogo = null;
+export const pagina = () => pag;
 export function show(sub) { ir(sub && root.querySelector(`.ajp[data-p="${sub}"]`) ? sub : 'home'); }
 
 function ir(p) {
-  pagina = p;
+  pag = p;
   root.querySelectorAll('.ajp').forEach(x => x.classList.toggle('hide', x.dataset.p !== p));
   if (p === 'home' || p === 'negocio' || p === 'meta' || p === 'precios') fill();
   if (p === 'clientes') paintClientes();
   if (p === 'operadores') paintOps();
   if (p === 'importar') maquinas.show();
   if (p === 'anuladas') loadAnuladas();
+  if (p === 'personalizar') paintPref();
   window.scrollTo(0, 0);
 }
 
@@ -170,6 +188,7 @@ function fill() {
   $('#aTasa', root).value = s.itbms.tasa;
   root.querySelector('[data-email]').textContent = S.account.email;
   root.querySelector('[data-aneg]').textContent = S.account.business;
+  paintRecSt();
   root.querySelector('[data-alogo]').innerHTML = logoHtml();
   root.querySelector('[data-alogo2]').innerHTML = logoHtml();
   root.querySelector('[data-logodel]').classList.toggle('hide', !s.empresa.logo);
@@ -350,6 +369,24 @@ async function onCliente(e) {
     catch (err) { toast(err.message, true); }
   }
 }
+
+async function codigoRecuperacion() {
+  const r = await dialog({
+    title: S.account.recovery ? 'Crear un código nuevo' : 'Crear código de recuperación',
+    html: S.account.recovery ? '<p class="sub-note">El código anterior dejará de funcionar.</p>' : '',
+    fields: [{ name: 'actual', label: 'Tu contraseña', type: 'password', autocomplete: 'current-password' }],
+    ok: 'Crear código',
+    onSubmit: v => api('/api/account/recovery', { method: 'POST', body: v }),
+  });
+  if (!r?.code) return;
+  S.account.recovery = true; paintRecSt();
+  await choice({
+    title: 'Código de recuperación',
+    html: `<div class="reccode num">${esc(r.code)}</div><p class="sub-note">Guárdalo en un lugar seguro. Sirve una sola vez para entrar con “¿Olvidaste tu contraseña?” y no se vuelve a mostrar.</p>`,
+    buttons: [{ label: 'Copiar', value: 'c', cls: 'line' }, { label: 'Listo', value: 'ok' }],
+  }).then(v => { if (v === 'c') navigator.clipboard?.writeText(r.code).then(() => toast('Código copiado'), () => {}); });
+}
+function paintRecSt() { const e = root.querySelector('[data-recst]'); if (e) e.textContent = S.account.recovery ? 'Activo' : 'Sin crear'; }
 
 async function cambiarPwd() {
   const r = await dialog({

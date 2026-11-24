@@ -2,6 +2,9 @@ import { api, setHandlers } from './api.js';
 import { S, loadMe, loadClients, startSync, stopSync, today } from './store.js';
 import { $, $$, toast } from './ui/dom.js';
 import { closeMenu } from './ui/menu.js';
+import { transicion, syncNav } from './ui/motion.js';
+import { ci } from './icons.js';
+import { aplicarTema } from './tema.js';
 import { showAuth } from './views/auth.js';
 import { esc } from './util.js';
 import * as dia from './views/dia.js';
@@ -12,6 +15,11 @@ import * as ordenes from './views/ordenes.js';
 import * as orden from './views/orden.js';
 
 const VIEWS = { dia, caja, ordenes, orden, reportes, ajustes };
+aplicarTema();
+for (const b of document.querySelectorAll('nav.tabs button[data-v]:not(.acct)')) {
+  const k = b.dataset.v === 'ajustes' ? 'operadores' : b.dataset.v; b.querySelector('svg')?.remove();
+  b.insertAdjacentHTML('afterbegin', `<span class="nico"><span class="d">${ci(k)}</span><span class="f">${ci(k, 'fill')}</span></span>`);
+}
 const NAV = { caja: 'ordenes', orden: 'ordenes' };
 let mounted = false, vista = null, navSel = 'dia';
 
@@ -26,19 +34,35 @@ function go(v, push = true) {
   if (v.startsWith('ajustes=')) { sub = v.slice(8); v = 'ajustes'; push = false; }
   if (!VIEWS[v]) v = 'dia';
   closeMenu();
+  const antes = vista, subAntes = antes === 'ajustes' ? ajustes.pagina() : null;
+  const esSub = x => x === 'caja' || x === 'orden';
+  let tipo = null;
+  if (antes && antes !== v) {
+    if (esSub(v) && !esSub(antes)) tipo = 'abrir';
+    else if (esSub(antes) && !esSub(v)) tipo = 'cerrar';
+    else if (!esSub(v)) tipo = ORDEN.indexOf(v) > ORDEN.indexOf(antes) ? 'adelante' : 'atras';
+    else tipo = 'abrir';
+  } else if (antes === 'ajustes' && v === 'ajustes' && (sub || 'home') !== subAntes) tipo = sub && sub !== 'home' ? 'abrir' : 'cerrar';
   vista = v;
-  $$('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + v));
   if (v !== 'orden') navSel = NAV[v] || v;
   $$('nav.tabs button').forEach(b => b.classList.toggle('on', b.dataset.v === navSel));
+  syncNav();
   if (push && location.hash !== '#' + v) history.replaceState(null, '', '#' + v);
-  VIEWS[v].show(sub);
-  window.scrollTo(0, 0);
+  transicion(tipo, () => {
+    $$('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + v));
+    VIEWS[v].show(sub);
+    window.scrollTo(0, 0);
+    document.dispatchEvent(new Event('vista-visible'));
+  });
 }
+const ORDEN = ['dia', 'ordenes', 'reportes', 'ajustes'];
 
 function paintAcct() {
-  $('#acct').innerHTML = S.account ? esc(S.account.email) : '';
   const logo = S.settings?.empresa?.logo;
-  $('#brand').innerHTML = S.account ? `${logo ? `<img src="${esc(logo)}" alt="">` : `<span class="ini">${esc((S.account.business || '?').trim().charAt(0).toUpperCase())}</span>`}<b>${esc(S.account.business)}</b>` : '';
+  const av = S.account ? (logo ? `<img src="${esc(logo)}" alt="">` : `<span class="ini">${esc((S.account.business || '?').trim().charAt(0).toUpperCase())}</span>`) : '';
+  $('#acct').innerHTML = S.account ? `${av}<span class="an"><b>${esc(S.account.business)}</b><small>${esc(S.account.email)}</small></span><span class="gear">${ci('ajustes')}</span>` : '';
+  $('#brand').innerHTML = '<div class="cmyk"><i style="background:var(--c)"></i><i style="background:var(--m)"></i><i style="background:var(--y)"></i><i style="background:var(--ink)"></i></div><b>Color</b>';
+  syncNav();
 }
 
 async function enter() {

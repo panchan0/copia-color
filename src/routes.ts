@@ -50,14 +50,60 @@ export async function login(env: Env, req: Request, url: URL): Promise<Response>
   return json({ ok: true }, 200, { 'set-cookie': sessionCookie(token, url) });
 }
 
+/* Código de recuperación: 20 caracteres sin letras confusas, se guarda solo su hash. */
+const RC_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const normCode = (s: unknown) => (typeof s === 'string' ? s : '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+async function codeHash(accountId: string, code: string) {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`recovery:${accountId}:${code}`));
+  return btoa(String.fromCharCode(...new Uint8Array(d)));
+}
+
+export async function newRecoveryCode(c: Ctx) {
+  const b = await readJson(c.req);
+  await rateLimit(c.env, 'pwd:' + c.accountId, 8, 15 * 60_000);
+  const row = await c.env.DB.prepare('SELECT pass_hash, pass_salt, pass_iter FROM accounts WHERE id = ?').bind(c.accountId)
+    .first<{ pass_hash: string; pass_salt: string; pass_iter: number }>();
+  if (!row) throw new HttpError(401, 'Inicia sesión');
+  const h = await hashPassword(typeof b.actual === 'string' ? b.actual : '', row.pass_salt, row.pass_iter);
+  if (!safeEqual(h.hash, row.pass_hash)) throw new HttpError(400, 'La contraseña no es correcta');
+  const rnd = crypto.getRandomValues(new Uint8Array(20));
+  const raw = [...rnd].map(x => RC_ABC[x % 32]).join('');
+  await c.env.DB.prepare('UPDATE accounts SET recovery_hash = ? WHERE id = ?').bind(await codeHash(c.accountId, raw), c.accountId).run();
+  return json({ code: raw.match(/.{5}/g)!.join('-') });
+}
+
+export async function recoverPassword(env: Env, req: Request, url: URL): Promise<Response> {
+  const b = await readJson(req);
+  const email = str(b.email, 254).toLowerCase();
+  const code = normCode(b.code);
+  const nueva = typeof b.nueva === 'string' ? b.nueva : '';
+  if (nueva.length < 8 || nueva.length > 200) throw new HttpError(400, 'La contraseña nueva debe tener al menos 8 caracteres');
+  const ip = req.headers.get('cf-connecting-ip') || 'local';
+  await rateLimit(env, 'rec:' + email, 5, 60 * 60_000);
+  await rateLimit(env, 'ip:' + ip, 40, 15 * 60_000);
+  const row = await env.DB.prepare('SELECT id, recovery_hash FROM accounts WHERE email = ?').bind(email).first<{ id: string; recovery_hash: string | null }>();
+  const ok = !!row?.recovery_hash && code.length === 20 && safeEqual(await codeHash(row.id, code), row.recovery_hash);
+  if (!ok || !row) throw new HttpError(400, 'Correo o código de recuperación incorrectos');
+  const n = await hashPassword(nueva, null, iterations(env));
+  await env.DB.batch([
+    env.DB.prepare('UPDATE accounts SET pass_hash = ?, pass_salt = ?, pass_iter = ?, recovery_hash = NULL WHERE id = ?').bind(n.hash, n.salt, n.iterations, row.id),
+    env.DB.prepare('DELETE FROM sessions WHERE account_id = ?').bind(row.id),
+  ]);
+  await clearRateLimit(env, 'rec:' + email);
+  await clearRateLimit(env, 'login:' + email);
+  const token = await createSession(env, row.id, req);
+  return json({ ok: true }, 200, { 'set-cookie': sessionCookie(token, url) });
+}
+
 export async function logout(env: Env, req: Request, url: URL): Promise<Response> {
   await destroySession(env, req);
   return json({ ok: true }, 200, { 'set-cookie': clearCookie(url) });
 }
 
 export async function me(c: Ctx) {
-  const a = await c.env.DB.prepare('SELECT email, business, rev FROM accounts WHERE id = ?').bind(c.accountId).first();
+  const a = await c.env.DB.prepare('SELECT email, business, rev, recovery_hash IS NOT NULL AS recovery FROM accounts WHERE id = ?').bind(c.accountId).first();
   if (!a) throw new HttpError(401, 'Inicia sesión');
+  a.recovery = !!a.recovery;
   return json({ account: a, settings: await getSettings(c.env, c.accountId) });
 }
 

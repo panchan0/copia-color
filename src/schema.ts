@@ -58,6 +58,8 @@ async function columns(env: Env, table: string) {
 async function upgradeSales(env: Env) {
   const row = await env.DB.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sales'").first<{ sql: string }>();
   if (!row || row.sql.includes('estado')) return;
+  const ac = await columns(env, 'accounts');
+  if (!ac.has('recovery_hash')) await env.DB.prepare('ALTER TABLE accounts ADD COLUMN recovery_hash TEXT').run();
   const sc = await columns(env, 'sales');
   const has = (c: string) => sc.has(c);
   const numero = has('numero') ? 'numero' : 'NULL';
@@ -97,6 +99,8 @@ async function migrate(env: Env) {
   if (!cc.has('email')) add.push(env.DB.prepare('ALTER TABLE clients ADD COLUMN email TEXT'));
   if (!cc.has('dm')) add.push(env.DB.prepare('ALTER TABLE clients ADD COLUMN dm TEXT'));
   if (add.length) await env.DB.batch(add);
+  const ac = await columns(env, 'accounts');
+  if (!ac.has('recovery_hash')) await env.DB.prepare('ALTER TABLE accounts ADD COLUMN recovery_hash TEXT').run();
   const sc = await columns(env, 'sales');
   if (!sc.has('origen')) await env.DB.prepare('ALTER TABLE sales ADD COLUMN origen TEXT').run();
   await env.DB.batch(INDEXES.map(s => env.DB.prepare(s)));

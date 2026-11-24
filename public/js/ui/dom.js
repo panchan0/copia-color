@@ -1,3 +1,4 @@
+import { ci } from '../icons.js';
 import { esc } from '../util.js';
 
 export const $ = (sel, root = document) => root.querySelector(sel);
@@ -23,6 +24,12 @@ export const ICON = {
 };
 
 /** Diálogo modal. fields: [{name,label,type,value,placeholder,required}] → resuelve con los valores o null */
+/** Cierra un diálogo con animación. */
+export function cerrarOverlay(ov) {
+  if (document.documentElement.classList.contains('calma')) return ov.remove();
+  ov.classList.add('closing'); setTimeout(() => ov.remove(), 220);
+}
+
 export function dialog({ title, fields = [], html = '', ok = 'Guardar', cancel = 'Cancelar', danger = false, onSubmit }) {
   return new Promise(resolve => {
     const ov = document.createElement('div');
@@ -34,12 +41,13 @@ export function dialog({ title, fields = [], html = '', ok = 'Guardar', cancel =
         : f.type === 'select'
         ? `<div class="field" style="margin-bottom:10px"><label for="dlg${i}">${esc(f.label)}</label><select class="input" id="dlg${i}" name="${f.name}">${f.options.map(([v, l]) => `<option value="${esc(v)}"${v === f.value ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>`
         : `<div class="field" style="margin-bottom:10px"><label for="dlg${i}">${esc(f.label)}</label>
-        <input class="input" id="dlg${i}" name="${f.name}" type="${f.type || 'text'}" value="${esc(f.value ?? '')}" ${f.step ? `step="${f.step}"` : ''} ${f.placeholder ? `placeholder="${esc(f.placeholder)}"` : ''} ${f.autocomplete ? `autocomplete="${f.autocomplete}"` : ''}></div>`).join('')}
+        ${f.type === 'password' ? '<div class="pwdwrap">' : ''}<input class="input" id="dlg${i}" name="${f.name}" type="${f.type || 'text'}" value="${esc(f.value ?? '')}" ${f.step ? `step="${f.step}"` : ''} ${f.placeholder ? `placeholder="${esc(f.placeholder)}"` : ''} ${f.autocomplete ? `autocomplete="${f.autocomplete}"` : ''}>${f.type === 'password' ? `<button type="button" class="eyebtn" data-eye aria-label="Mostrar contraseña">${ci('eye')}</button></div>` : ''}</div>`).join('')}
       <div class="err" style="color:var(--bad);font-size:14px;font-weight:600;min-height:18px"></div>
       <div class="acts">${cancel ? `<button type="button" class="btn line" data-x>${esc(cancel)}</button>` : ''}<button class="btn ${danger ? 'danger' : ''}" type="submit">${esc(ok)}</button></div>
     </form>`;
     const form = ov.firstElementChild;
-    const close = v => { ov.remove(); document.removeEventListener('keydown', key); resolve(v); };
+    form.querySelectorAll('[data-eye]').forEach(b => b.onclick = () => { const i = b.previousElementSibling, ver = i.type === 'password'; i.type = ver ? 'text' : 'password'; b.innerHTML = ci(ver ? 'eyeoff' : 'eye'); });
+    const close = v => { cerrarOverlay(ov); document.removeEventListener('keydown', key); resolve(v); };
     const key = e => { if (e.key === 'Escape') close(null); };
     document.addEventListener('keydown', key);
     ov.addEventListener('mousedown', e => { if (e.target === ov) close(null); });
@@ -63,7 +71,7 @@ export function choice({ title, html = '', buttons }) {
     const ov = document.createElement('div');
     ov.className = 'overlay';
     ov.innerHTML = `<div class="dialog" role="dialog"><h3>${esc(title)}</h3>${html}<div class="acts wrap">${buttons.map((b, i) => `<button type="button" class="btn ${b.cls || ''}" data-i="${i}">${b.label}</button>`).join('')}</div></div>`;
-    const close = v => { ov.remove(); document.removeEventListener('keydown', key); resolve(v); };
+    const close = v => { cerrarOverlay(ov); document.removeEventListener('keydown', key); resolve(v); };
     const key = e => { if (e.key === 'Escape') close(null); };
     document.addEventListener('keydown', key);
     ov.addEventListener('mousedown', e => { if (e.target === ov) close(null); });

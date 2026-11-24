@@ -13,6 +13,7 @@ add('GET', '/api/me', R.me);
 add('GET', '/api/rev', R.rev);
 add('PUT', '/api/account', R.updateAccount);
 add('POST', '/api/account/password', R.changePassword);
+add('POST', '/api/account/recovery', R.newRecoveryCode);
 add('POST', '/api/auth/logout-all', R.logoutAll);
 add('PUT', '/api/settings', R.putSettings);
 add('GET', '/api/clients', R.listClients);
@@ -52,6 +53,7 @@ export default {
       if (p === '/api/auth/register' && m === 'POST') return await R.register(env, req, url);
       if (p === '/api/auth/login' && m === 'POST') return await R.login(env, req, url);
       if (p === '/api/auth/logout' && m === 'POST') return await R.logout(env, req, url);
+      if (p === '/api/auth/recover' && m === 'POST') return await R.recoverPassword(env, req, url);
       if (p === '/api/config' && m === 'GET') return json({ signup: (env.ALLOW_SIGNUP || 'true') === 'true', version: env.CF_VERSION_METADATA?.id || 'dev' });
       for (const [method, re, h] of routes) {
         const match = re.exec(p);

@@ -825,3 +825,185 @@ nav.tabs{background:rgba(255,255,255,.82);-webkit-backdrop-filter:blur(18px) sat
 .oacts{display:flex;flex-direction:column;gap:10px}
 .oacts .grid2{gap:10px}
 .btn.danger.armed{background:#fdecec;border-color:#e9a3a3}
+
+/* =================== v8 · íconos, indicadores, transiciones, tema oscuro, modo app =================== */
+
+/* ---- comportamiento de aplicación ---- */
+html,body{overscroll-behavior:none;overflow-x:hidden;touch-action:manipulation;-webkit-text-size-adjust:100%}
+html{height:100%}
+body{min-height:100%;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+input,textarea,select,[contenteditable],.reccode,.kv b,.oit .d,.stbl td,.dtable td{-webkit-user-select:text;user-select:text}
+img,svg{-webkit-user-drag:none;user-select:none}
+main{overflow-x:clip}
+.menu,.dialog,.scrollx,.seg.scroll,.cal{overscroll-behavior:contain}
+
+/* ---- íconos coolicons ---- */
+svg.ci{width:22px;height:22px;flex:none;fill:none!important;stroke:none!important}
+.nico{position:relative;width:24px;height:24px;display:block;flex:none;transition:transform .35s cubic-bezier(.34,1.56,.64,1)}
+nav.tabs .nico svg.ci{position:absolute;inset:0;width:24px;height:24px;transition:opacity .25s ease}
+.nico .f{opacity:0}.nico .f svg{opacity:0}
+nav.tabs .nico .d svg.ci{opacity:1}
+nav.tabs .nico .f svg.ci{opacity:0}
+nav.tabs button.on .nico .d svg.ci{opacity:0}
+nav.tabs button.on .nico .f svg.ci{opacity:1}
+.nico .f,.nico .d{position:absolute;inset:0;opacity:1}
+nav.tabs button.on .nico{transform:scale(1.08)}
+nav.tabs button{color:var(--muted)}
+nav.tabs button.on{color:var(--acc)}
+.sico svg.ci{width:22px;height:22px;color:var(--acc)}
+.sico{width:40px;height:40px}
+.tema svg.ci{width:18px;height:18px;margin-right:6px;vertical-align:-4px}
+.tema button{display:inline-flex;align-items:center;justify-content:center}
+
+/* ---- indicador deslizante del menú ---- */
+nav.tabs .in{position:relative}
+nav.tabs button{position:relative;z-index:1;background:transparent!important}
+.navind{position:absolute;left:0;top:0;z-index:0;border-radius:14px;background:var(--acc2);pointer-events:none;opacity:0;
+  transition:transform .55s cubic-bezier(.34,1.3,.5,1),width .45s cubic-bezier(.34,1.3,.5,1),height .45s cubic-bezier(.34,1.3,.5,1),opacity .2s}
+@media (max-width:899px){ .navind{border-radius:16px} }
+@media (min-width:900px){
+  nav.tabs button,nav.tabs button.on{border-left:0!important}
+  .navind{border-radius:10px}
+  .navind::before{content:'';position:absolute;left:0;top:22%;bottom:22%;width:3px;border-radius:3px;background:var(--acc)}
+}
+
+/* ---- indicador deslizante de los selectores ---- */
+.seg{position:relative}
+.seg>button{position:relative;z-index:1}
+.seg>button.sel{border-bottom-color:transparent!important;color:var(--acc)}
+.segind{position:absolute;left:0;top:0;z-index:0;pointer-events:none;opacity:0;
+  transition:transform .6s cubic-bezier(.34,1.56,.64,1),width .5s cubic-bezier(.34,1.56,.64,1),opacity .2s}
+.segind::after{content:'';position:absolute;left:12%;right:12%;bottom:-1px;height:3px;border-radius:3px;background:var(--acc)}
+.seg.tema{border-bottom:0;background:var(--soft);border-radius:12px;padding:4px}
+.seg.tema>button{border-bottom:0;border-radius:9px;padding:9px 6px;font-size:13.5px}
+.seg.tema .segind{background:var(--card);border-radius:9px;box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.seg.tema .segind::after{display:none}
+.seg.tema>button.sel{color:var(--ink)}
+
+/* ---- transiciones de pantalla (View Transitions) ---- */
+main{view-transition-name:main}
+nav.tabs{view-transition-name:nav}
+::view-transition-group(nav){animation:none}
+::view-transition-old(nav){display:none}
+::view-transition-new(nav){animation:none}
+::view-transition-group(main){animation:none}
+::view-transition-old(main),::view-transition-new(main){mix-blend-mode:normal;height:auto}
+:root:not([data-vt=tema])::view-transition-old(root),:root:not([data-vt=tema])::view-transition-new(root){animation:none}
+@keyframes vtOutL{to{transform:translateX(-22%);opacity:0}}
+@keyframes vtOutR{to{transform:translateX(22%);opacity:0}}
+@keyframes vtInR{from{transform:translateX(30%);opacity:0}}
+@keyframes vtInL{from{transform:translateX(-30%);opacity:0}}
+@keyframes vtOutU{to{transform:translateY(-60px);opacity:0}}
+@keyframes vtOutD{to{transform:translateY(60px);opacity:0}}
+@keyframes vtInU{from{transform:translateY(90px);opacity:0}}
+@keyframes vtInD{from{transform:translateY(-90px);opacity:0}}
+@keyframes circIn{from{clip-path:circle(0 at var(--nx) var(--ny))}to{clip-path:circle(var(--vr) at var(--nx) var(--ny))}}
+@keyframes circOut{from{clip-path:circle(var(--vr) at var(--ox) var(--oy))}to{clip-path:circle(0 at var(--ox) var(--oy))}}
+:root[data-vt=adelante-x]::view-transition-old(main){animation:.3s cubic-bezier(.4,0,.2,1) both vtOutL}
+:root[data-vt=adelante-x]::view-transition-new(main){animation:.42s cubic-bezier(.2,.8,.2,1) both vtInR}
+:root[data-vt=atras-x]::view-transition-old(main){animation:.3s cubic-bezier(.4,0,.2,1) both vtOutR}
+:root[data-vt=atras-x]::view-transition-new(main){animation:.42s cubic-bezier(.2,.8,.2,1) both vtInL}
+:root[data-vt=adelante-y]::view-transition-old(main){animation:.3s cubic-bezier(.4,0,.2,1) both vtOutU}
+:root[data-vt=adelante-y]::view-transition-new(main){animation:.45s cubic-bezier(.2,.8,.2,1) both vtInU}
+:root[data-vt=atras-y]::view-transition-old(main){animation:.3s cubic-bezier(.4,0,.2,1) both vtOutD}
+:root[data-vt=atras-y]::view-transition-new(main){animation:.45s cubic-bezier(.2,.8,.2,1) both vtInD}
+:root[data-vt=abrir]::view-transition-old(main){animation:none}
+:root[data-vt=abrir]::view-transition-new(main){animation:.55s cubic-bezier(.35,.6,.2,1) both circIn}
+:root[data-vt=cerrar]::view-transition-new(main){animation:none}
+:root[data-vt=cerrar]::view-transition-old(main){animation:.42s cubic-bezier(.55,0,.75,.4) both circOut;z-index:2}
+:root[data-vt=tema]::view-transition-old(root),:root[data-vt=tema]::view-transition-new(root){animation-duration:.35s}
+:root[data-vt]::view-transition-old(main),:root[data-vt]::view-transition-new(main){overflow:clip}
+/* las animaciones propias de la vista no se suman a la transición */
+:root[data-vt] .view.on,:root[data-vt] .ajp{animation:none!important}
+.view.on{animation:none}
+#v-caja.on,#v-orden.on,.ajp:not(.hide):not([data-p=home]){animation:none}
+
+/* ---- menús desplegables: apertura y cierre ---- */
+@keyframes menuIn{from{opacity:0;transform:scale(.9) translateY(-8px);clip-path:inset(0 0 92% 0 round 14px)}60%{opacity:1}to{opacity:1;transform:none;clip-path:inset(0 0 0 0 round 14px)}}
+@keyframes menuInUp{from{opacity:0;transform:scale(.9) translateY(8px);clip-path:inset(92% 0 0 0 round 14px)}60%{opacity:1}to{opacity:1;transform:none;clip-path:inset(0 0 0 0 round 14px)}}
+@keyframes menuOut{to{opacity:0;transform:scale(.95) translateY(-4px)}}
+@keyframes itIn{from{opacity:0;transform:translateY(-6px)}}
+.menu{animation:menuIn .38s cubic-bezier(.2,1.1,.35,1) both}
+.menu.up{animation-name:menuInUp}
+.menu.out{animation:menuOut .16s ease-in forwards;pointer-events:none}
+.menu .it,.menu .none{animation:itIn .32s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0) * 24ms + 50ms)}
+.picker .chev,.picker svg:last-child{transition:transform .3s cubic-bezier(.34,1.56,.64,1)}
+.picker.open svg:last-child{transform:rotate(180deg)}
+
+/* ---- diálogos: cierre ---- */
+@keyframes fadeOut{to{opacity:0}}
+@keyframes dlgOut{to{transform:translateY(30px) scale(.98);opacity:0}}
+.overlay.closing{animation:fadeOut .2s ease-in forwards}
+.overlay.closing .dialog{animation:dlgOut .2s ease-in forwards}
+
+/* ---- contraseñas ---- */
+.pwdwrap{position:relative}
+.pwdwrap .input{padding-right:46px}
+.eyebtn{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:38px;height:38px;border:0;background:none;color:var(--muted);display:flex;align-items:center;justify-content:center;border-radius:8px}
+.eyebtn svg.ci{width:20px;height:20px}
+.authlnk{display:block;margin:14px auto 0;font-size:14px}
+.authtit{font-size:17px;font-weight:700;margin-bottom:14px}
+.reccode{font-size:20px;font-weight:700;letter-spacing:.06em;text-align:center;padding:14px;border-radius:10px;background:var(--soft);margin:6px 0 10px;word-break:break-all}
+.srow .st small{display:block;font-size:12px;color:var(--muted);font-weight:500;margin-top:1px}
+
+/* ---- interruptor ---- */
+.srow.sw{cursor:pointer}
+.switch{appearance:none;-webkit-appearance:none;width:46px;height:28px;border-radius:20px;background:var(--line);position:relative;flex:none;cursor:pointer;transition:background .25s}
+.switch::after{content:'';position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .3s cubic-bezier(.34,1.56,.64,1)}
+.switch:checked{background:var(--acc)}
+.switch:checked::after{transform:translateX(18px)}
+
+/* ---- reducir animaciones ---- */
+.calma *,.calma *::before,.calma *::after{animation:none!important;transition:none!important}
+
+/* =================== tema oscuro =================== */
+:root[data-theme=dark]{
+  color-scheme:dark;
+  --paper:#0e1318;--card:#161c23;--ink:#e6ebf0;--muted:#97a2ae;--line:#29323c;--soft:#1f2730;--soft2:#1a2129;
+  --acc:#3bb4ef;--acc2:rgba(59,180,239,.16);--link:#62c3f3;
+  --ok:#3ec27a;--bad:#f07171;--warn:#e0a92e;
+  --shadow:0 10px 30px rgba(0,0,0,.5),0 2px 6px rgba(0,0,0,.35);
+}
+:root[data-theme=dark] body{background:var(--paper)}
+:root[data-theme=dark] .card,:root[data-theme=dark] .kpi{background:var(--card);border-color:var(--line)}
+:root[data-theme=dark] .input,:root[data-theme=dark] .picker,:root[data-theme=dark] .datebtn,:root[data-theme=dark] .iconbtn,
+:root[data-theme=dark] .btn.line,:root[data-theme=dark] .qty button,:root[data-theme=dark] .cal .hd button,:root[data-theme=dark] .dchip,
+:root[data-theme=dark] .srow,:root[data-theme=dark] .chip{background:var(--soft2);border-color:#36404b;color:var(--ink)}
+:root[data-theme=dark] .btn.danger{background:transparent;border-color:#5a2c2c;color:var(--bad)}
+:root[data-theme=dark] .btn.danger.armed{background:rgba(240,113,113,.14)}
+:root[data-theme=dark] .btn:not(.line):not(.danger):not(.ghost){color:#04121c}
+:root[data-theme=dark] .btn.ghost{background:var(--soft)}
+:root[data-theme=dark] .menu{background:rgba(28,35,44,.78);border-color:rgba(70,82,96,.7)}
+:root[data-theme=dark] .dialog{background:rgba(24,30,38,.9)}
+:root[data-theme=dark] nav.tabs{background:rgba(18,23,30,.82);border-color:var(--line)}
+@media (min-width:900px){ :root[data-theme=dark] nav.tabs{background:rgba(18,23,30,.92)} }
+:root[data-theme=dark] .toast{background:rgba(230,235,240,.92);color:#0e1318}
+:root[data-theme=dark] .stbl th,:root[data-theme=dark] .dtable th{background:var(--soft2);color:var(--ink)}
+:root[data-theme=dark] .stbl tbody tr:hover td{background:var(--soft2)}
+:root[data-theme=dark] .stbl .c-d{color:#c2cad3}
+:root[data-theme=dark] .cal .d.sel{background:var(--acc);color:#04121c}
+:root[data-theme=dark] .seg.tema .segind{background:#2b3541}
+:root[data-theme=dark] .switch::after{background:#e6ebf0}
+:root[data-theme=dark] .alogo{border-color:var(--line)}
+:root[data-theme=dark] .t-pend,:root[data-theme=dark] .tag.t-pend{background:rgba(224,169,46,.18);color:#f1c35b}
+:root[data-theme=dark] .bar{background:var(--soft)}
+:root[data-theme=dark] ::placeholder{color:#6d7884}
+:root[data-theme=dark] .ohead b,:root[data-theme=dark] .big{color:var(--ink)}
+
+/* ---- perfil al final de la barra (PC) / "Cuenta" (celular) ---- */
+nav.tabs .acct{display:none}
+@media (min-width:900px){
+  nav.tabs .tabaj{display:none!important}
+  nav.tabs .brand{gap:10px}
+  nav.tabs .brand b{font-size:18px}
+  nav.tabs .acct{display:flex!important;align-items:center;gap:10px;margin-top:auto;width:100%;border:0;border-top:1px solid var(--line);background:transparent;padding:12px 10px;border-radius:0 0 10px 10px;text-align:left;color:var(--ink);white-space:normal;position:relative;z-index:1}
+  nav.tabs .acct img,nav.tabs .acct .ini{width:36px;height:36px;border-radius:50%;object-fit:contain;flex:none;background:#fff;border:1px solid var(--line)}
+  nav.tabs .acct .ini{display:inline-flex;align-items:center;justify-content:center;background:var(--acc);color:#fff;font-weight:700;font-size:16px;border:0}
+  nav.tabs .acct .an{flex:1;min-width:0}
+  nav.tabs .acct .an b{display:block;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  nav.tabs .acct .an small{display:block;font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  nav.tabs .acct .gear{color:var(--muted);display:flex;transition:transform .5s cubic-bezier(.34,1.56,.64,1),color .2s}
+  nav.tabs .acct:hover .gear{transform:rotate(60deg);color:var(--ink)}
+  nav.tabs .acct.on .gear{color:var(--acc);transform:rotate(90deg)}
+  nav.tabs .acct.on{border-top-color:transparent}
+}

@@ -1,5 +1,6 @@
 import { api } from '../api.js';
 import { S, today, on, syncNow, emit } from '../store.js';
+import { deslizar } from '../ui/motion.js';
 import { toast, ICON } from '../ui/dom.js';
 import { openCalendar } from '../ui/calendar.js';
 import { exportMenu } from '../ui/pickers.js';
@@ -48,8 +49,8 @@ export function mount(el) {
     <div class="sub-note" data-prev-cob></div>
   </div>`;
 
-  root.querySelector('[data-prev]').onclick = () => setFecha(addDays(fecha, -1));
-  root.querySelector('[data-next]').onclick = () => setFecha(addDays(fecha, 1));
+  root.querySelector('[data-prev]').onclick = () => { setFecha(addDays(fecha, -1)); deslizar(root.querySelector('[data-cal] .lbl'), -1); };
+  root.querySelector('[data-next]').onclick = () => { setFecha(addDays(fecha, 1)); deslizar(root.querySelector('[data-cal] .lbl'), 1); };
   root.querySelector('[data-hoy]').onclick = () => setFecha(today());
   root.querySelector('[data-cal]').onclick = e => openCalendar(e.currentTarget, {
     value: fecha, max: today(), onPick: setFecha,

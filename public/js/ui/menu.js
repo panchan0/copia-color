@@ -22,14 +22,19 @@ export function openMenu(anchor, { build, width, onClose, align = 'left' }) {
     left = Math.max(8, Math.min(left, window.innerWidth - el.offsetWidth - 8));
     let top = r.bottom + 6;
     const h = el.offsetHeight;
-    if (top + h > window.innerHeight - 8 && r.top - h - 6 > 8) top = r.top - h - 6;
+    const arriba = top + h > window.innerHeight - 8 && r.top - h - 6 > 8;
+    if (arriba) top = r.top - h - 6;
     el.style.left = left + 'px'; el.style.top = Math.max(8, top) + 'px';
+    el.style.transformOrigin = `${Math.max(0, Math.min(el.offsetWidth, r.left + r.width / 2 - left))}px ${arriba ? '100%' : '0'}`;
+    el.classList.toggle('up', arriba);
   };
   const outside = e => { if (!el.contains(e.target) && !anchor.contains(e.target)) close(); };
   const key = e => { if (e.key === 'Escape') { close(); anchor.focus(); } };
   const close = () => {
-    if (!el.isConnected) return;
-    el.remove(); anchor.classList.remove('open');
+    if (!el.isConnected || el.classList.contains('out')) return;
+    anchor.classList.remove('open');
+    if (document.documentElement.classList.contains('calma')) el.remove();
+    else { el.classList.add('out'); setTimeout(() => el.remove(), 170); }
     document.removeEventListener('mousedown', outside, true);
     document.removeEventListener('touchstart', outside, true);
     document.removeEventListener('keydown', key);
@@ -41,6 +46,7 @@ export function openMenu(anchor, { build, width, onClose, align = 'left' }) {
   const reposition = e => { if (!el.contains(e.target)) place(); };
   build(el, close, place);
   place();
+  el.querySelectorAll('.it, .none').forEach((it, i) => it.style.setProperty('--i', Math.min(i, 10)));
   setTimeout(() => {
     document.addEventListener('mousedown', outside, true);
     document.addEventListener('touchstart', outside, true);

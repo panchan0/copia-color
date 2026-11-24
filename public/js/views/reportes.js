@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 import { S, today, on } from '../store.js';
 import { toast, ICON } from '../ui/dom.js';
+import { deslizar } from '../ui/motion.js';
 import { exportMenu } from '../ui/pickers.js';
 import { exportExcel, printReport } from '../export.js';
 import { esc, money, money0, int, addDays, addMonths, startOfWeek, startOfMonth, endOfMonth, parseD, MESES, MES3, DIAS3, cap, sumDays, emptyDay, METODOS, fechaCorta, dayFromSummary, prodList, fmtCant } from '../util.js';
@@ -18,6 +19,8 @@ function mover(n) {
   else if (modo === 'mes') ref = addMonths(startOfMonth(ref), n);
   else ref = `${Number(ref.slice(0, 4)) + n}-01-01`;
   load();
+  deslizar(root.querySelector('[data-lbl]'), n);
+  deslizar(root.querySelector('.rep-body') || root.querySelector('[data-total]')?.closest('.card'), n);
 }
 function etiqueta() {
   const t = today(), { from, to } = rango();
@@ -73,7 +76,13 @@ export function mount(el) {
     <div class="card r-pag"><div class="label">Productos y servicios</div><div data-pag style="overflow-x:auto"></div></div>
     <div class="card r-tab"><div class="label" data-tlabel>Detalle por día</div><div style="overflow-x:auto"><table class="dtable rtable" data-tab></table></div></div>
   </div>`;
-  root.querySelector('[data-modo]').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || b.dataset.m === modo) return; modo = b.dataset.m; load(); });
+  root.querySelector('[data-modo]').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b || b.dataset.m === modo) return;
+    const orden = ['semana', 'mes', 'anio'], dir = orden.indexOf(b.dataset.m) > orden.indexOf(modo) ? 1 : -1;
+    modo = b.dataset.m; load();
+    deslizar(root.querySelector('[data-lbl]'), dir);
+    root.querySelectorAll('.card, .kpi').forEach(c => deslizar(c, dir));
+  });
   root.querySelector('[data-prev]').onclick = () => mover(-1);
   root.querySelector('[data-next]').onclick = () => mover(1);
   root.querySelector('[data-hoy]').onclick = () => { ref = today(); load(); };
