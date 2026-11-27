@@ -1,5 +1,21 @@
 // Íconos coolicons (MIT, © Kryston Schwarze) · variantes duotone y fill
 export const CI = {
+"trabajos": {
+"duotone": "<path d=\"M4 13V8C4 5.791 5.791 4 8 4H16C18.209 4 20 5.791 20 8V16C20 18.209 18.209 20 16 20H8C5.791 20 4 18.209 4 16Z\" fill=\"currentColor\" fill-opacity=\"0.2\"/> <path d=\"M4 13V8C4 5.791 5.791 4 8 4H16C18.209 4 20 5.791 20 8V16C20 18.209 18.209 20 16 20H8C5.791 20 4 18.209 4 16Z M4 13H8L9.5 16H14.5L16 13H20\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
+"fill": "<path d=\"M4 13V8C4 5.791 5.791 4 8 4H16C18.209 4 20 5.791 20 8V16C20 18.209 18.209 20 16 20H8C5.791 20 4 18.209 4 16Z\" fill=\"currentColor\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/> <path d=\"M4 13H8L9.5 16H14.5L16 13H20\" stroke=\"var(--card)\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+},
+"inventario": {
+"duotone": "<path d=\"M12 3L20 7.5V16.5L12 21L4 16.5V7.5Z\" fill=\"currentColor\" fill-opacity=\"0.2\"/> <path d=\"M12 3L20 7.5V16.5L12 21L4 16.5V7.5Z M4 7.5L12 12L20 7.5M12 12V21\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
+"fill": "<path d=\"M12 3L20 7.5V16.5L12 21L4 16.5V7.5Z\" fill=\"currentColor\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/> <path d=\"M4 7.5L12 12L20 7.5M12 12V21\" stroke=\"var(--card)\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+},
+"canales": {
+"duotone": "<path d=\"M12 4C16.971 4 21 7.358 21 11.5C21 15.642 16.971 19 12 19C10.9 19 9.85 18.84 8.88 18.54L4 20L5.3 16.4C3.86 15.08 3 13.37 3 11.5C3 7.358 7.029 4 12 4Z\" fill=\"currentColor\" fill-opacity=\"0.2\"/> <path d=\"M12 4C16.971 4 21 7.358 21 11.5C21 15.642 16.971 19 12 19C10.9 19 9.85 18.84 8.88 18.54L4 20L5.3 16.4C3.86 15.08 3 13.37 3 11.5C3 7.358 7.029 4 12 4Z M8 11.5H8.01M12 11.5H12.01M16 11.5H16.01\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
+"fill": "<path d=\"M12 4C16.971 4 21 7.358 21 11.5C21 15.642 16.971 19 12 19C10.9 19 9.85 18.84 8.88 18.54L4 20L5.3 16.4C3.86 15.08 3 13.37 3 11.5C3 7.358 7.029 4 12 4Z\" fill=\"currentColor\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/> <path d=\"M8 11.5H8.01M12 11.5H12.01M16 11.5H16.01\" stroke=\"var(--card)\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+},
+"facturas": {
+"duotone": "<path d=\"M6 3H18V21L15 19L12 21L9 19L6 21Z\" fill=\"currentColor\" fill-opacity=\"0.2\"/> <path d=\"M6 3H18V21L15 19L12 21L9 19L6 21Z M9 8H15M9 12H15M9 16H12\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
+"fill": "<path d=\"M6 3H18V21L15 19L12 21L9 19L6 21Z\" fill=\"currentColor\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/> <path d=\"M9 8H15M9 12H15M9 16H12\" stroke=\"var(--card)\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+},
 "dia": {
 "duotone": "<path d=\"M13 4C14.105 4 15 4.895 15 6V20H9V6C9 4.895 9.895 4 11 4ZM16 10C16 9.259 16.268 8.551 16.764 8H19C20.105 8 21 8.895 21 10V20H16ZM8 13V20H3V13C3 11.895 3.895 11 5 11H7.236C7.73 11.552 8.002 12.259 8 13Z\" fill=\"currentColor\" fill-opacity=\"0.2\"/> <path d=\"M3 20V15C3 12.79086 4.79086 11 7 11H9V7C9 5.34315 10.34315 4 12 4C13.65685 4 15 5.34315 15 7V8H17C19.20914 8 21 9.79086 21 12V20H3ZM9 20L9 11M15 20L15 8\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
 "fill": "<path d=\"M9 6C9 4.343 10.343 3 12 3C13.657 3 15 4.343 15 6V20C15 20.552 14.552 21 14 21H10C9.448 21 9 20.552 9 20ZM22 10V20C22 20.552 21.552 21 21 21H17C16.448 21 16 20.552 16 20V10C16 8.928 16.572 7.938 17.5 7.402C18.429 6.866 19.573 6.866 20.501 7.402C21.429 7.939 22 8.928 22 10ZM2 13C2 11.928 2.572 10.938 3.5 10.402C4.429 9.866 5.572 9.866 6.501 10.402C7.429 10.938 8 11.928 8 13V20C8 20.552 7.552 21 7 21H3C2.448 21 2 20.552 2 20Z\" fill=\"currentColor\"/>"

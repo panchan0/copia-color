@@ -40,6 +40,24 @@ const SCHEMA = [
   'CREATE INDEX IF NOT EXISTS idx_mjobs_fecha ON machine_jobs(account_id, fecha)',
   'CREATE TABLE IF NOT EXISTS assets ( account_id TEXT NOT NULL, k TEXT NOT NULL, data TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (account_id, k) )',
   'CREATE TABLE IF NOT EXISTS password_resets ( token_hash TEXT PRIMARY KEY, account_id TEXT NOT NULL, expires INTEGER NOT NULL )',
+  // Inventario
+  "CREATE TABLE IF NOT EXISTS inv_items ( id TEXT PRIMARY KEY, account_id TEXT NOT NULL, nombre TEXT NOT NULL, unidad TEXT NOT NULL, minimo REAL NOT NULL DEFAULT 0, costo_cents INTEGER NOT NULL DEFAULT 0, reglas TEXT NOT NULL DEFAULT '[]', archivado INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL )",
+  'CREATE TABLE IF NOT EXISTS inv_movs ( id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, item_id TEXT NOT NULL, ts INTEGER NOT NULL, fecha TEXT NOT NULL, tipo TEXT NOT NULL, cant REAL NOT NULL, nota TEXT, sale_id TEXT )',
+  'CREATE INDEX IF NOT EXISTS idx_invm_item ON inv_movs(item_id)',
+  'CREATE INDEX IF NOT EXISTS idx_invm_sale ON inv_movs(account_id, sale_id)',
+  // Trabajos que llegan por la web, WhatsApp o correo
+  'CREATE TABLE IF NOT EXISTS inbox_threads ( id TEXT PRIMARY KEY, account_id TEXT NOT NULL, canal TEXT NOT NULL, contacto TEXT NOT NULL, nombre TEXT, estado TEXT NOT NULL, resumen TEXT, propuesta TEXT, sale_id TEXT, no_leidos INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL )',
+  'CREATE INDEX IF NOT EXISTS idx_inbox_acc ON inbox_threads(account_id, updated_at)',
+  'CREATE INDEX IF NOT EXISTS idx_inbox_contacto ON inbox_threads(account_id, canal, contacto)',
+  'CREATE TABLE IF NOT EXISTS inbox_msgs ( id INTEGER PRIMARY KEY AUTOINCREMENT, thread_id TEXT NOT NULL, account_id TEXT NOT NULL, dir TEXT NOT NULL, autor TEXT NOT NULL, texto TEXT, media TEXT, ts INTEGER NOT NULL, ext_id TEXT )',
+  'CREATE INDEX IF NOT EXISTS idx_inboxm_thread ON inbox_msgs(thread_id, ts)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_inboxm_ext ON inbox_msgs(account_id, ext_id) WHERE ext_id IS NOT NULL',
+  'CREATE TABLE IF NOT EXISTS inbox_files ( id TEXT NOT NULL, part INTEGER NOT NULL, account_id TEXT NOT NULL, thread_id TEXT NOT NULL, nombre TEXT, tipo TEXT, size INTEGER, data TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (id, part) )',
+  'CREATE TABLE IF NOT EXISTS push_subs ( endpoint TEXT PRIMARY KEY, account_id TEXT NOT NULL, created_at INTEGER NOT NULL )',
+  'CREATE TABLE IF NOT EXISTS kv ( k TEXT PRIMARY KEY, v TEXT NOT NULL )',
+  // Facturas
+  "CREATE TABLE IF NOT EXISTS invoices ( id TEXT PRIMARY KEY, account_id TEXT NOT NULL, numero INTEGER NOT NULL, fecha TEXT NOT NULL, hora TEXT NOT NULL, ts INTEGER NOT NULL, client_id TEXT, receptor TEXT NOT NULL, items TEXT NOT NULL, sale_ids TEXT NOT NULL DEFAULT '[]', subtotal_cents INTEGER NOT NULL, itbms_cents INTEGER NOT NULL, total_cents INTEGER NOT NULL, estado TEXT NOT NULL DEFAULT 'emitida', cufe TEXT, nota TEXT, anulada_ts INTEGER )",
+  'CREATE INDEX IF NOT EXISTS idx_inv_acc ON invoices(account_id, fecha)',
 ];
 
 const INDEXES = [
@@ -125,7 +143,12 @@ async function migrate(env: Env) {
   if (!ac.has('totp_pending')) await env.DB.prepare('ALTER TABLE accounts ADD COLUMN totp_pending TEXT').run();
   const sc = await columns(env, 'sales');
   if (!sc.has('origen')) await env.DB.prepare('ALTER TABLE sales ADD COLUMN origen TEXT').run();
+  for (const [col, t] of [['prod', 'TEXT'], ['prod_ts', 'INTEGER'], ['entrega', 'TEXT'], ['factura_id', 'TEXT']]) if (!sc.has(col)) await env.DB.prepare(`ALTER TABLE sales ADD COLUMN ${col} ${t}`).run();
+  const cc2 = await columns(env, 'clients');
+  for (const col of ['dv', 'direccion']) if (!cc2.has(col)) await env.DB.prepare(`ALTER TABLE clients ADD COLUMN ${col} TEXT`).run();
   await env.DB.batch(INDEXES.map(s => env.DB.prepare(s)));
+  // "Crédito" ahora es un estado de la orden (antes era un nombre de cliente)
+  await env.DB.prepare(`UPDATE sales SET estado = 'credito', client_name = NULL WHERE client_id IS NULL AND client_name = 'Crédito' AND estado = 'pendiente'`).run();
   // Órdenes sin cobrar que quedaron sin ITBMS: se les agrega el 7%.
   await env.DB.prepare(`UPDATE sales SET
       subtotal_cents = COALESCE(subtotal_cents, total_cents),

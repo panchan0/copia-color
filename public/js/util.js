@@ -6,7 +6,7 @@ export const MES3 = MESES.map(m => m.slice(0, 3));
 
 export const METODOS = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', yappy: 'Yappy', pordefinir: 'Por definir' };
 export const METODOS_REALES = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', yappy: 'Yappy' };
-export const ESTADOS = { pendiente: 'Pendiente', pagada: 'Pagada', anulada: 'Anulada' };
+export const ESTADOS = { pendiente: 'Pendiente', credito: 'Crédito', pagada: 'Pagada', anulada: 'Anulada' };
 export const CATS = { color: 'Color', bn: 'Blanco y negro', planos: 'Planos', enc: 'Encuadernación', otros: 'Otros' };
 export const TIPOS = { imp: 'Impresión', cop: 'Copia' };
 export const TAMS = { carta: 'Carta', legal: 'Legal', otro: 'Otro' };
@@ -61,6 +61,7 @@ export function statsFromSales(sales, enRango = null) {
     if (creada) {
       s.n++; s.total += v.total_cents; s.sub += v.subtotal_cents ?? v.total_cents; s.itbms += v.itbms_cents || 0;
       if (v.estado === 'pendiente') { s.pendN++; s.pendT += v.total_cents; }
+      if (v.estado === 'credito') { s.credN++; s.credT += v.total_cents; }
       for (const it of v.items || []) addItem(s, it, it.cant, it.sub_cents);
     }
     const pagada = v.estado === 'pagada' && (!enRango || enRango(v.pagada_fecha));
@@ -69,7 +70,7 @@ export function statsFromSales(sales, enRango = null) {
   return s;
 }
 export function emptyDay() {
-  return { n: 0, total: 0, sub: 0, itbms: 0, cobrado: 0, pendN: 0, pendT: 0, colorPags: 0, bnPags: 0,
+  return { n: 0, total: 0, sub: 0, itbms: 0, cobrado: 0, pendN: 0, pendT: 0, credN: 0, credT: 0, colorPags: 0, bnPags: 0,
     met: { efectivo: { n: 0, t: 0 }, tarjeta: { n: 0, t: 0 }, yappy: { n: 0, t: 0 }, pordefinir: { n: 0, t: 0 } }, prods: {}, maq: {} };
 }
 const UNIT_PAG = new Set(['pág', 'hoja', undefined, null]);
@@ -84,7 +85,7 @@ function addItem(s, it, cant, monto) {
 export function dayFromSummary(d) {
   const s = emptyDay();
   if (!d) return s;
-  Object.assign(s, { n: d.n, total: d.total, sub: d.sub, itbms: d.itbms, cobrado: d.cobrado, pendN: d.pendN, pendT: d.pendT, maq: d.maq || {} });
+  Object.assign(s, { n: d.n, total: d.total, sub: d.sub, itbms: d.itbms, cobrado: d.cobrado, pendN: d.pendN, pendT: d.pendT, credN: d.credN || 0, credT: d.credT || 0, maq: d.maq || {} });
   for (const k in s.met) s.met[k] = { ...(d.met[k] || { n: 0, t: 0 }) };
   for (const it of d.items || []) addItem(s, it, it.cant, it.monto);
   return s;
@@ -93,7 +94,7 @@ export function sumDays(list) {
   const s = emptyDay();
   for (const d of list) {
     if (!d) continue;
-    for (const k of ['n', 'total', 'sub', 'itbms', 'cobrado', 'pendN', 'pendT', 'colorPags', 'bnPags']) s[k] += d[k] || 0;
+    for (const k of ['n', 'total', 'sub', 'itbms', 'cobrado', 'pendN', 'pendT', 'credN', 'credT', 'colorPags', 'bnPags']) s[k] += d[k] || 0;
     for (const k in s.met) { s.met[k].n += d.met[k]?.n || 0; s.met[k].t += d.met[k]?.t || 0; }
     for (const [l, p] of Object.entries(d.prods)) { const q = s.prods[l] ||= { ...p, cant: 0, monto: 0 }; q.cant += p.cant; q.monto += p.monto; }
     for (const [m, x] of Object.entries(d.maq || {})) { const q = s.maq[m] ||= { color: 0, bn: 0, trabajos: 0 }; q.color += x.color; q.bn += x.bn; q.trabajos += x.trabajos; }

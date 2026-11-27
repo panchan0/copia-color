@@ -3,6 +3,8 @@ import { S, on, loadMe, syncNow } from '../store.js';
 import { $, toast, dialog, choice, ICON } from '../ui/dom.js';
 import { nuevoCliente, listPicker, crearOperador } from '../ui/pickers.js';
 import * as maquinas from './maquinas.js';
+import * as canales from './canales.js';
+import { imprimirFactura, numFac } from '../facturas.js';
 import { transicion } from '../ui/motion.js';
 import { ci } from '../icons.js';
 import { prefs, guardarPref } from '../tema.js';
@@ -48,6 +50,9 @@ export function mount(el) {
       ${fila('clientes', 'Clientes')}
       ${fila('operadores', 'Operadores')}
       ${fila('meta', 'Meta e impuesto')}
+      ${fila('canales', 'Pedidos por WhatsApp, correo y web')}
+      ${fila('facturas', 'Facturas')}
+      <button class="srow solomovil" data-irinv><span class="sico">${ci('inventario')}</span><span class="st">Inventario</span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
       ${fila('importar', 'Importar registros de máquinas')}
       ${fila('anuladas', 'Órdenes anuladas')}
       ${fila('personalizar', 'Personalizar')}
@@ -59,7 +64,7 @@ export function mount(el) {
       <div class="grid2" style="margin-top:14px">
         <div class="field span2"><label for="aNeg">Nombre del negocio</label><input class="input" id="aNeg" maxlength="80"></div>
         <div class="field"><label for="eTel">Teléfono</label><input class="input" id="eTel" maxlength="40"></div>
-        <div class="field"><label for="eRuc">RUC</label><input class="input" id="eRuc" maxlength="60"></div>
+        <div class="field"><label for="eRuc">RUC</label><div class="rucdv"><input class="input" id="eRuc" maxlength="60"><input class="input" id="eDv" maxlength="4" placeholder="DV" aria-label="DV"></div></div>
         <div class="field span2"><label for="eMail">Correo</label><input class="input" id="eMail" maxlength="120"></div>
         <div class="field span2"><label for="eDir">Dirección</label><input class="input" id="eDir" maxlength="120"></div>
       </div>
@@ -68,7 +73,7 @@ export function mount(el) {
     <div class="card">
       <div class="label">Órdenes de trabajo y reportes</div>
       <div class="docimgs">
-        ${[['logo_doc', 'Logo'], ['sello_pagado', 'Sello de cobrado'], ['sello_pendiente', 'Sello de pendiente']].map(([k, l]) => `<div class="docimg">
+        ${[['logo_doc', 'Logo'], ['sello_pagado', 'Sello de cobrado'], ['sello_pendiente', 'Sello de pendiente'], ['sello_credito', 'Sello de crédito']].map(([k, l]) => `<div class="docimg">
           <div class="dprev" data-prev="${k}"></div>
           <div class="dinfo"><b>${l}</b><div class="row wrap"><label class="btn line sm">Cambiar<input type="file" accept="image/*" data-asset="${k}" hidden></label><button class="lnk an hide" data-assetdel="${k}">Quitar</button></div></div>
         </div>`).join('')}
@@ -98,6 +103,8 @@ export function mount(el) {
       <button class="btn" style="margin-top:14px" data-save>Guardar</button>
     </div>`)}
   ${sub('importar', 'Importar registros de máquinas', '<div data-maq></div>')}
+  ${sub('canales', 'Pedidos por WhatsApp, correo y web', '<div data-canales></div>')}
+  ${sub('facturas', 'Facturas', `<div class="card"><input class="input" data-fq type="search" placeholder="Buscar cliente, RUC o número" style="margin-bottom:10px"><div data-flist></div></div>`)}
   ${sub('anuladas', 'Órdenes anuladas', `<div class="toolbar"><button class="iconbtn" data-aprev aria-label="Mes anterior">${ICON.left}</button><div class="datebtn" data-ames></div><button class="iconbtn" data-anext aria-label="Mes siguiente">${ICON.right}</button></div>
     <div class="card"><div class="ohead"><span data-an1></span><b class="num" data-an2></b></div><div data-alist></div></div>`)}
   ${sub('personalizar', 'Personalizar', `<div class="card">
@@ -115,6 +122,10 @@ export function mount(el) {
       <button class="srow danger" data-outall><span class="st">Cerrar sesión en todos los dispositivos</span><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
     </div>`)}`;
   maquinas.mount(root.querySelector('[data-maq]'));
+  canales.mount(root.querySelector('[data-canales]'));
+  root.querySelector('[data-irinv]').onclick = () => { location.hash = '#inventario'; };
+  root.querySelector('[data-fq]').addEventListener('input', paintFacturas);
+  root.querySelector('[data-flist]').addEventListener('click', onFactura);
   root.querySelector('[data-tema]').addEventListener('click', e => { const b = e.target.closest('button[data-t]'); if (!b) return; guardarPref({ tema: b.dataset.t }); paintPref(); });
   root.querySelector('[data-calma]').addEventListener('change', e => { guardarPref({ calma: e.target.checked }); paintPref(); });
   bindAbrir(root.querySelector('[data-alist]'));
@@ -169,6 +180,8 @@ function ir(p) {
   if (p === 'negocio') paintDocs();
   if (p === 'operadores') paintOps();
   if (p === 'importar') maquinas.show();
+  if (p === 'canales') canales.show();
+  if (p === 'facturas') loadFacturas();
   if (p === 'anuladas') loadAnuladas();
   if (p === 'personalizar') paintPref();
   window.scrollTo(0, 0);
@@ -203,7 +216,7 @@ function fill() {
   catalogo = structuredClone(s.catalogo);
   $('#aNeg', root).value = S.account.business;
   $('#eTel', root).value = s.empresa.telefono; $('#eMail', root).value = s.empresa.correo;
-  $('#eDir', root).value = s.empresa.direccion; $('#eRuc', root).value = s.empresa.ruc;
+  $('#eDir', root).value = s.empresa.direccion; $('#eRuc', root).value = s.empresa.ruc; $('#eDv', root).value = s.empresa.dv || '';
   $('#aMeta', root).value = s.meta / 100; $('#aDias', root).value = s.dias; $('#aSem', root).value = s.diasSemana;
   const zonas = ZONAS.includes(s.tz) ? ZONAS : [s.tz, ...ZONAS];
   $('#aTz', root).innerHTML = zonas.map(z => `<option value="${esc(z)}"${z === s.tz ? ' selected' : ''}>${esc(z.replace('America/', '').replace(/_/g, ' '))}</option>`).join('');
@@ -321,7 +334,7 @@ function body() {
     ...S.settings, catalogo,
     meta: toCents($('#aMeta', root).value), dias: Number($('#aDias', root).value), diasSemana: Number($('#aSem', root).value), tz: $('#aTz', root).value,
     itbms: { modo: 'aparte', tasa: Number($('#aTasa', root).value) },
-    empresa: { telefono: $('#eTel', root).value, correo: $('#eMail', root).value, direccion: $('#eDir', root).value, ruc: $('#eRuc', root).value, logo: S.settings.empresa.logo || '' },
+    empresa: { telefono: $('#eTel', root).value, correo: $('#eMail', root).value, direccion: $('#eDir', root).value, ruc: $('#eRuc', root).value, dv: $('#eDv', root).value, logo: S.settings.empresa.logo || '' },
   };
 }
 
@@ -371,7 +384,8 @@ async function onCliente(e) {
     const r = await dialog({
       title: 'Editar cliente',
       fields: [{ name: 'name', label: 'Nombre o empresa', value: c.name }, { name: 'phone', label: 'Celular', type: 'tel', value: c.phone || '' },
-        { name: 'dm', label: 'DM / Instagram', value: c.dm || '' }, { name: 'email', label: 'Correo', type: 'email', value: c.email || '' }, { name: 'ruc', label: 'RUC / cédula', value: c.ruc || '' }],
+        { name: 'dm', label: 'DM / Instagram', value: c.dm || '' }, { name: 'email', label: 'Correo', type: 'email', value: c.email || '' }, { name: 'ruc', label: 'RUC / cédula', value: c.ruc || '' },
+        { name: 'dv', label: 'DV', value: c.dv || '' }, { name: 'direccion', label: 'Dirección', value: c.direccion || '' }],
       onSubmit: v => api(`/api/clients/${c.id}`, { method: 'PUT', body: v }),
     });
     if (r) { Object.assign(c, r.client); toast('Cliente actualizado'); syncNow(); paintClientes(); }
@@ -402,7 +416,7 @@ async function codigoRecuperacion() {
 }
 async function paintDocs() {
   const a = await docAssets();
-  const def = { sello_pagado: 'CANCELADO', sello_pendiente: 'PENDIENTE', logo_doc: '' };
+  const def = { sello_pagado: 'CANCELADO', sello_pendiente: 'PENDIENTE', sello_credito: 'CRÉDITO', logo_doc: '' };
   root.querySelectorAll('[data-prev]').forEach(d => {
     const k = d.dataset.prev;
     d.innerHTML = a[k] ? `<img src="${esc(a[k])}" alt="">` : def[k] ? `<span class="sello-def">${def[k]}</span>` : `<span class="muted">${esc(S.account.business)}</span>`;
@@ -455,4 +469,41 @@ async function cambiarPwd() {
     onSubmit: v => api('/api/account/password', { method: 'POST', body: v }),
   });
   if (r) toast('Contraseña actualizada');
+}
+
+/* ---------- Facturas ---------- */
+let facturas = [];
+async function loadFacturas() {
+  const l = root.querySelector('[data-flist]');
+  if (!facturas.length) l.innerHTML = '<div class="empty">Cargando…</div>';
+  try { facturas = (await api('/api/invoices')).invoices; paintFacturas(); } catch (e) { toast(e.message, true); }
+}
+function paintFacturas() {
+  const q = root.querySelector('[data-fq]').value.trim().toLowerCase();
+  const vis = facturas.filter(f => !q || `${f.receptor.nombre} ${f.receptor.ruc} ${numFac(f.numero)}`.toLowerCase().includes(q));
+  root.querySelector('[data-flist]').innerHTML = vis.length ? `<table class="stbl"><thead><tr><th>N°</th><th>Fecha</th><th>Cliente</th><th class="n">Total</th><th></th></tr></thead><tbody>
+    ${vis.map(f => `<tr class="rowlink${f.estado === 'anulada' ? ' void' : ''}" data-fac="${esc(f.id)}" tabindex="0"><td class="num">${numFac(f.numero)}</td><td class="num muted">${esc(f.fecha.split('-').reverse().join('/'))}</td>
+      <td>${esc(f.receptor.nombre)}${f.receptor.ruc ? `<small class="muted"> · ${esc(f.receptor.ruc)}${f.receptor.dv ? ` DV ${esc(f.receptor.dv)}` : ''}</small>` : ''}${f.estado === 'anulada' ? ' <span class="tag t-anul">Anulada</span>' : ''}</td>
+      <td class="n num"><b>${money(f.total_cents)}</b></td><td class="c-a"><svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></td></tr>`).join('')}</tbody></table>`
+    : `<div class="empty">${facturas.length ? 'Ninguna factura coincide' : 'Las facturas se crean desde una orden o seleccionando varias en Órdenes'}</div>`;
+}
+async function onFactura(e) {
+  const tr = e.target.closest('[data-fac]'); if (!tr) return;
+  const f = facturas.find(x => x.id === tr.dataset.fac); if (!f) return;
+  const r = await choice({
+    title: `Factura N° ${numFac(f.numero)}`,
+    html: `<p class="sub-note" style="margin:-6px 0 4px">${esc(f.receptor.nombre)} · ${money(f.total_cents)}</p>`,
+    buttons: [
+      ...(f.estado === 'anulada' ? [] : [{ label: 'Anular', value: 'anular', cls: 'danger' }]),
+      { label: 'Ver órdenes', value: 'ordenes', cls: 'line' },
+      { label: `${ICON.print}Imprimir`, value: 'print' },
+    ],
+  });
+  if (r === 'print') imprimirFactura(f);
+  else if (r === 'ordenes' && f.sale_ids[0]) location.hash = `#orden=${f.sale_ids[0]}`;
+  else if (r === 'anular') {
+    const ok = await dialog({ title: `¿Anular la factura N° ${numFac(f.numero)}?`, html: '<p class="sub-note">Sus órdenes se podrán facturar de nuevo.</p>', ok: 'Anular', danger: true });
+    if (!ok) return;
+    try { await api(`/api/invoices/${f.id}/void`, { method: 'POST', body: {} }); toast('Factura anulada'); syncNow(); loadFacturas(); } catch (err) { toast(err.message, true); }
+  }
 }

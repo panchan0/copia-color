@@ -7,12 +7,14 @@ import { salesTable, bindAbrir, numTxt } from '../ui/salestable.js';
 import { esc, money, int, MESES, MES3, cap, startOfMonth, endOfMonth, addMonths, addDays, startOfWeek, parseD, baseNombre, dmy } from '../util.js';
 import { S } from '../store.js';
 import { calGrid } from '../ui/calgrid.js';
+import { imprimirHojaBlanco } from '../hoja.js';
+import { facturar } from '../facturas.js';
 import { deslizar } from '../ui/motion.js';
 
 let selec = null;
 let fProd = null, fCol = 'todos', cal = false, cmodo = 'mes', cref = null, dia = null;
 let paintEst = () => {}, root, estado = 'pendiente', mes = null, lista = [], loading = false, reqId = 0, anularPend = null;
-const ESTS = { pendiente: 'Pendientes', pordefinir: 'Por definir', pagada: 'Pagadas', todas: 'Todas' };
+const ESTS = { pendiente: 'Pendientes', credito: 'Crédito', pordefinir: 'Por definir', pagada: 'Pagadas', todas: 'Todas' };
 
 export function mount(el) {
   root = el;
@@ -20,6 +22,7 @@ export function mount(el) {
   root.innerHTML = `
   <div class="toolbar otb">
     <button type="button" class="estpick" data-est></button>
+    <button class="btn line hojab" data-hoja aria-label="Hoja en blanco">${ICON.print}<span>Hoja en blanco</span></button>
     <button class="btn" data-nueva>${ICON.plus}Nueva orden</button>
   </div>
   <div class="toolbar otb2">
@@ -44,12 +47,13 @@ export function mount(el) {
   </div>
   <div class="card olist">
     <div class="ohead"><span data-k1></span><span class="row" style="gap:12px"><button class="lnk" data-selmode>Seleccionar</button><b class="num" data-k2></b></span></div>
-    <div class="selbar hide" data-selbar><span data-selnum></span><button class="btn sm" data-unir>Unificar en una orden</button></div>
+    <div class="selbar hide" data-selbar><span data-selnum></span><span class="row" style="gap:8px"><button class="btn line sm" data-facsel>Facturar</button><button class="btn sm" data-unir>Unificar en una orden</button></span></div>
     <div class="bulk hide" data-bulk><button class="btn line sm" data-cobrartodas>Cobrar todas sin método</button></div>
     <div data-list></div>
   </div>`;
   paintEst = listPicker(root.querySelector('[data-est]'), { items: () => Object.entries(ESTS).map(([id, label]) => ({ id, label })), getValue: () => estado, onChange: v => { estado = v; load(); } });
   root.querySelector('[data-nueva]').onclick = () => { nuevaOrden(); location.hash = '#caja'; };
+  root.querySelector('[data-hoja]').onclick = () => imprimirHojaBlanco();
   root.querySelector('[data-prev]').onclick = () => { mes = addMonths(mes, -1); load(); };
   root.querySelector('[data-next]').onclick = () => { mes = addMonths(mes, 1); load(); };
   root.querySelector('[data-q]').addEventListener('input', paint);
@@ -88,6 +92,11 @@ export function mount(el) {
   bindAbrir(list);
   root.querySelector('[data-selmode]').onclick = () => { selec = selec ? null : new Set(); paint(); };
   root.querySelector('[data-unir]').onclick = unificar;
+  root.querySelector('[data-facsel]').onclick = async () => {
+    const el = lista.filter(v => selec?.has(v.id)); if (!el.length) return;
+    if (el.some(v => v.factura_id)) return toast('Alguna orden ya está facturada', true);
+    if (await facturar(el)) { selec = null; load(true); }
+  };
   on(what => { if ((what === 'remote' || what === 'sale') && root.closest('.view.on')) load(true); });
 }
 
@@ -105,7 +114,7 @@ async function load(silent = false, dir = 0) {
   if (!silent) { loading = true; paint(); }
   try {
     const cr = crango();
-    const q = cal ? `estado=${estado}&from=${cr.from}&to=${cr.to}` : estado === 'pendiente' ? 'estado=pendiente' : estado === 'pordefinir' ? 'estado=pordefinir' : `estado=${estado}&from=${mes}&to=${endOfMonth(mes)}`;
+    const q = cal ? `estado=${estado}&from=${cr.from}&to=${cr.to}` : estado === 'pendiente' || estado === 'credito' ? `estado=${estado}` : estado === 'pordefinir' ? 'estado=pordefinir' : `estado=${estado}&from=${mes}&to=${endOfMonth(mes)}`;
     const r = await api(`/api/orders?${q}`);
     if (id !== reqId) return;
     const cr2 = crango();
@@ -118,7 +127,7 @@ async function load(silent = false, dir = 0) {
 
 function paintHead() {
   paintEst();
-  root.querySelector('[data-mesnav]').classList.toggle('hide', cal || estado === 'pendiente' || estado === 'pordefinir');
+  root.querySelector('[data-mesnav]').classList.toggle('hide', cal || estado === 'pendiente' || estado === 'credito' || estado === 'pordefinir');
   root.querySelector('[data-ocal]').classList.toggle('hide', !cal);
   root.querySelector('[data-caltog]').classList.toggle('on', cal);
   root.querySelectorAll('[data-cmodo] button').forEach(b => b.classList.toggle('sel', b.dataset.m === cmodo));
@@ -152,19 +161,20 @@ function paint() {
   const total = vis.filter(v => !v.anulada).reduce((a, v) => a + v.total_cents, 0);
   root.querySelector('[data-k1]').textContent = loading ? '' : `${int(vis.length)} ${vis.length === 1 ? 'orden' : 'órdenes'}${dia ? ` · ${dmy(dia)}` : ''}`;
   root.querySelector('[data-k2]').textContent = loading ? '' : money(total);
-  root.querySelector('[data-bulk]').classList.toggle('hide', !!selec || estado !== 'pendiente' || !vis.length);
+  root.querySelector('[data-bulk]').classList.toggle('hide', !!selec || (estado !== 'pendiente' && estado !== 'credito') || !vis.length);
   root.querySelector('[data-selmode]').textContent = selec ? 'Cancelar' : 'Seleccionar';
   root.querySelector('[data-selbar]').classList.toggle('hide', !selec);
-  if (selec) root.querySelector('[data-selnum]').textContent = selec.size ? `${selec.size} seleccionada${selec.size === 1 ? '' : 's'} · ${money(lista.filter(v => selec.has(v.id)).reduce((a, v) => a + v.total_cents, 0))}` : 'Toca las órdenes a unificar';
+  if (selec) root.querySelector('[data-selnum]').textContent = selec.size ? `${selec.size} seleccionada${selec.size === 1 ? '' : 's'} · ${money(lista.filter(v => selec.has(v.id)).reduce((a, v) => a + v.total_cents, 0))}` : 'Toca las órdenes';
   root.querySelector('[data-unir]').disabled = !selec || selec.size < 2;
+  root.querySelector('[data-facsel]').disabled = !selec || !selec.size;
   root.querySelector('[data-list]').innerHTML = salesTable(vis, { sel: selec,
-    loading, fecha: true, pago: estado !== 'pendiente',
-    empty: estado === 'pendiente' ? 'No hay órdenes pendientes por cobrar' : 'Sin órdenes en este mes',
+    loading, fecha: true, pago: estado !== 'pendiente' && estado !== 'credito',
+    empty: estado === 'pendiente' ? 'No hay órdenes pendientes por cobrar' : estado === 'credito' ? 'No hay órdenes a crédito' : 'Sin órdenes en este mes',
   });
 }
 
 async function cobrarTodas(e) {
-  const vis = filtrar().filter(v => v.estado === 'pendiente');
+  const vis = filtrar().filter(v => v.estado === 'pendiente' || v.estado === 'credito');
   if (!vis.length) return;
   const b = e.currentTarget;
   if (!b.classList.contains('armed')) { b.classList.add('armed'); b.textContent = `¿Cobrar ${vis.length} órdenes?`; setTimeout(() => { b.classList.remove('armed'); b.textContent = 'Cobrar todas sin método'; }, 5000); return; }

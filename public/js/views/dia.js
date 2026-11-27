@@ -112,8 +112,8 @@ function paint() {
   const mc = Object.values(maq).reduce((a, x) => a + x.color, 0);
   root.querySelector('[data-kcols]').textContent = mc ? `Máquinas: ${int(mc)}` : '';
   root.querySelector('[data-kbn]').textContent = int(s.bnPags);
-  root.querySelector('[data-kpend]').textContent = money(s.pendT);
-  root.querySelector('[data-kpends]').textContent = `${s.pendN} ${s.pendN === 1 ? 'orden' : 'órdenes'}`;
+  root.querySelector('[data-kpend]').textContent = money(s.pendT + (s.credT || 0));
+  root.querySelector('[data-kpends]').textContent = s.credN ? `${s.pendN} pendiente${s.pendN === 1 ? '' : 's'} · ${s.credN} a crédito` : `${s.pendN} ${s.pendN === 1 ? 'orden' : 'órdenes'}`;
   for (const k of Object.keys(METODOS)) {
     if (!root.querySelector(`[data-m-${k}]`)) continue;
     root.querySelector(`[data-m-${k}]`).textContent = money(s.met[k].t);

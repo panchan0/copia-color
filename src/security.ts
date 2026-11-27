@@ -129,7 +129,7 @@ export async function resetPassword(env: Env, req: Request, url: URL): Promise<R
 }
 
 /* ---------- Imágenes de documentos: logo de órdenes/reportes y sellos ---------- */
-const ASSET_KEYS = new Set(['logo_doc', 'sello_pagado', 'sello_pendiente']);
+const ASSET_KEYS = new Set(['logo_doc', 'sello_pagado', 'sello_pendiente', 'sello_credito']);
 export async function getAssets(c: Ctx) {
   const { results } = await c.env.DB.prepare('SELECT k, data FROM assets WHERE account_id = ?').bind(c.accountId).all<{ k: string; data: string }>();
   const out: Record<string, string> = {};

@@ -5,6 +5,7 @@ import { hashPassword, safeEqual, iterations, createSession, sessionCookie, clea
 import { getSettings, validateSettings, bumpRev, defaults } from './settings';
 import { findItem, precioTramo } from './catalog';
 import { localParts, daysBetween } from './time';
+import { consumoStmts, recalcularConsumo } from './inventario';
 
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
 
@@ -113,8 +114,12 @@ export async function me(c: Ctx) {
 }
 
 export async function rev(c: Ctx) {
-  const a = await c.env.DB.prepare('SELECT rev FROM accounts WHERE id = ?').bind(c.accountId).first<{ rev: number }>();
-  return json({ rev: a?.rev ?? 0 });
+  const [a, e] = await c.env.DB.batch([
+    c.env.DB.prepare('SELECT rev FROM accounts WHERE id = ?').bind(c.accountId),
+    c.env.DB.prepare("SELECT COUNT(*) AS n, MAX(updated_at) AS u FROM inbox_threads WHERE account_id = ? AND no_leidos > 0").bind(c.accountId),
+  ]);
+  const r = (a.results[0] as any)?.rev ?? 0, x = e.results[0] as any;
+  return json({ rev: r, entrantes: x?.n || 0, ultimo: x?.u || 0 });
 }
 
 export async function updateAccount(c: Ctx) {
@@ -153,6 +158,8 @@ export async function logoutAll(c: Ctx) {
 
 export async function putSettings(c: Ctx) {
   const s = validateSettings(await readJson(c.req));
+  // El enlace público solo cambia desde Canales
+  s.canales.token = (await getSettings(c.env, c.accountId)).canales.token;
   await c.env.DB.batch([
     c.env.DB.prepare('INSERT INTO settings (account_id, data, updated_at) VALUES (?,?,?) ON CONFLICT(account_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at')
       .bind(c.accountId, JSON.stringify(s), Date.now()),
@@ -164,7 +171,7 @@ export async function putSettings(c: Ctx) {
 /* ---------------- Clientes ---------------- */
 
 export async function listClients(c: Ctx) {
-  const r = await c.env.DB.prepare('SELECT id, name, phone, ruc, email, dm FROM clients WHERE account_id = ? AND archived = 0 ORDER BY name COLLATE NOCASE').bind(c.accountId).all();
+  const r = await c.env.DB.prepare('SELECT id, name, phone, ruc, dv, direccion, email, dm FROM clients WHERE account_id = ? AND archived = 0 ORDER BY name COLLATE NOCASE').bind(c.accountId).all();
   return json({ clients: r.results });
 }
 
@@ -173,7 +180,7 @@ function clientBody(b: any) {
   if (!name) throw new HttpError(400, 'Escribe el nombre del cliente o empresa');
   const email = str(b.email, 120);
   if (email && !EMAIL_RE.test(email)) throw new HttpError(400, 'Correo del cliente inválido');
-  return { name, phone: str(b.phone, 30) || null, ruc: str(b.ruc, 40) || null, email: email || null, dm: str(b.dm, 60) || null };
+  return { name, phone: str(b.phone, 30) || null, ruc: str(b.ruc, 40) || null, dv: str(b.dv, 4) || null, direccion: str(b.direccion, 160) || null, email: email || null, dm: str(b.dm, 60) || null };
 }
 
 export async function createClient(c: Ctx) {
@@ -182,8 +189,8 @@ export async function createClient(c: Ctx) {
   if (dup && !dup.archived) throw new HttpError(409, 'Ese cliente ya existe');
   const id = dup ? dup.id : uuid();
   const stmt = dup
-    ? c.env.DB.prepare('UPDATE clients SET archived = 0, name = ?, phone = ?, ruc = ?, email = ?, dm = ? WHERE id = ?').bind(d.name, d.phone, d.ruc, d.email, d.dm, id)
-    : c.env.DB.prepare('INSERT INTO clients (id, account_id, name, phone, ruc, email, dm, created_at) VALUES (?,?,?,?,?,?,?,?)').bind(id, c.accountId, d.name, d.phone, d.ruc, d.email, d.dm, Date.now());
+    ? c.env.DB.prepare('UPDATE clients SET archived = 0, name = ?, phone = ?, ruc = ?, dv = ?, direccion = ?, email = ?, dm = ? WHERE id = ?').bind(d.name, d.phone, d.ruc, d.dv, d.direccion, d.email, d.dm, id)
+    : c.env.DB.prepare('INSERT INTO clients (id, account_id, name, phone, ruc, dv, direccion, email, dm, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)').bind(id, c.accountId, d.name, d.phone, d.ruc, d.dv, d.direccion, d.email, d.dm, Date.now());
   await c.env.DB.batch([stmt, await bumpRev(c.env, c.accountId)]);
   return json({ client: { id, ...d } }, 201);
 }
@@ -192,7 +199,7 @@ export async function updateClient(c: Ctx) {
   const d = clientBody(await readJson(c.req));
   const dup = await c.env.DB.prepare('SELECT id FROM clients WHERE account_id = ? AND name = ? COLLATE NOCASE AND id != ? AND archived = 0').bind(c.accountId, d.name, c.params.id).first();
   if (dup) throw new HttpError(409, 'Ya hay otro cliente con ese nombre');
-  const r = await c.env.DB.prepare('UPDATE clients SET name = ?, phone = ?, ruc = ?, email = ?, dm = ? WHERE id = ? AND account_id = ?').bind(d.name, d.phone, d.ruc, d.email, d.dm, c.params.id, c.accountId).run();
+  const r = await c.env.DB.prepare('UPDATE clients SET name = ?, phone = ?, ruc = ?, dv = ?, direccion = ?, email = ?, dm = ? WHERE id = ? AND account_id = ?').bind(d.name, d.phone, d.ruc, d.dv, d.direccion, d.email, d.dm, c.params.id, c.accountId).run();
   if (!r.meta.changes) throw new HttpError(404, 'Cliente no encontrado');
   await (await bumpRev(c.env, c.accountId)).run();
   return json({ client: { id: c.params.id, ...d } });
@@ -217,9 +224,9 @@ function range(url: URL, maxDays = 400) {
 }
 
 const SALE_COLS = `s.id, s.numero, s.numero_anulado, s.fecha, s.hora, s.ts, s.client_id, s.client_name,
-  COALESCE(s.contacto_tel, c.phone) AS tel, COALESCE(s.contacto_dm, c.dm) AS dm, COALESCE(s.contacto_email, c.email) AS email, c.ruc AS ruc,
+  COALESCE(s.contacto_tel, c.phone) AS tel, COALESCE(s.contacto_dm, c.dm) AS dm, COALESCE(s.contacto_email, c.email) AS email, c.ruc AS ruc, c.dv AS dv, c.direccion AS direccion,
   s.operador, s.nota, s.origen, s.estado, s.metodo, s.pagada_ts, s.pagada_fecha, s.pagada_hora,
-  s.subtotal_cents, s.itbms_cents, s.total_cents, s.paginas, s.anulada, s.anulada_ts`;
+  s.subtotal_cents, s.itbms_cents, s.total_cents, s.paginas, s.anulada, s.anulada_ts, s.prod, s.prod_ts, s.entrega, s.factura_id`;
 const ITEM_COLS = 'i.sale_id, i.cat, i.tipo, i.tam, i.nombre, i.color, i.unidad, i.extra, i.cant, i.precio_cents, i.sub_cents';
 
 function shapeSales(rows: any[], items: any[]) {
@@ -235,7 +242,7 @@ function shapeSales(rows: any[], items: any[]) {
   return sales;
 }
 
-async function querySales(env: Env, where: string, binds: unknown[], order = 's.ts', limit = 3000) {
+export async function querySales(env: Env, where: string, binds: unknown[], order = 's.ts', limit = 3000) {
   const [s, i] = await env.DB.batch([
     env.DB.prepare(`SELECT ${SALE_COLS} FROM sales s LEFT JOIN clients c ON c.id = s.client_id WHERE ${where} ORDER BY ${order} LIMIT ${limit}`).bind(...binds),
     env.DB.prepare(`SELECT ${ITEM_COLS} FROM sale_items i JOIN sales s ON s.id = i.sale_id WHERE ${where} ORDER BY i.id`).bind(...binds),
@@ -253,14 +260,14 @@ export async function listSales(c: Ctx) {
 /** Lista de órdenes: pendientes (todas) o por estado en un rango. */
 export async function listOrders(c: Ctx) {
   const estado = c.url.searchParams.get('estado') || 'pendiente';
-  if (estado === 'pendiente') return json({ sales: await querySales(c.env, "s.account_id = ? AND s.estado = 'pendiente'", [c.accountId], 's.ts DESC', 1000) });
+  if (estado === 'pendiente' || estado === 'credito') return json({ sales: await querySales(c.env, 's.account_id = ? AND s.estado = ?', [c.accountId, estado], 's.ts DESC', 1000) });
   if (estado === 'pordefinir') return json({ sales: await querySales(c.env, "s.account_id = ? AND s.estado = 'pagada' AND s.metodo = 'pordefinir'", [c.accountId], 's.ts DESC', 1000) });
   const { from, to } = range(c.url);
-  const est = ['pagada', 'anulada'].includes(estado) ? ` AND s.estado = '${estado}'` : '';
+  const est = ['pagada', 'anulada', 'credito'].includes(estado) ? ` AND s.estado = '${estado}'` : '';
   return json({ sales: await querySales(c.env, `s.account_id = ? AND s.fecha BETWEEN ? AND ?${est}`, [c.accountId, from, to], 's.ts DESC', 3000) });
 }
 
-async function getSale(env: Env, accountId: string, id: string) {
+export async function getSale(env: Env, accountId: string, id: string) {
   return (await querySales(env, 's.account_id = ? AND s.id = ?', [accountId, id]))[0] || null;
 }
 
@@ -273,7 +280,7 @@ export async function saleById(c: Ctx) {
 const METODOS = new Set(['efectivo', 'tarjeta', 'yappy', 'pordefinir']);
 const EMAIL_OK = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
 
-async function armarOrden(c: Ctx, b: any) {
+export async function armarOrden(c: { env: Env; accountId: string }, b: any) {
   if (!Array.isArray(b.items) || b.items.length < 1 || b.items.length > 50) throw new HttpError(400, 'La orden no tiene líneas');
   const st = await getSettings(c.env, c.accountId);
   const items = b.items.map((it: any) => {
@@ -324,10 +331,51 @@ async function armarOrden(c: Ctx, b: any) {
     const cl = await c.env.DB.prepare('SELECT id, name FROM clients WHERE id = ? AND account_id = ?').bind(str(b.client_id, 64), c.accountId).first<{ id: string; name: string }>();
     if (!cl) throw new HttpError(400, 'Cliente no encontrado');
     clientId = cl.id; clientName = cl.name;
-  } else if (b.credito) clientName = 'Crédito';
+  }
   const email = str(b.contacto_email, 120);
   if (email && !EMAIL_OK.test(email)) throw new HttpError(400, 'Correo de contacto inválido');
   return { st, items, subtotal, itbms, total, paginas, clientId, clientName, email };
+}
+
+const ENTREGA_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+const PROD = new Set(['cola', 'proceso', 'listo', 'entregado']);
+
+/** Inventario: descuenta lo que consume la orden (si falla, la orden igual queda guardada). */
+async function inventario(env: Env, accountId: string, saleId: string) {
+  try { await recalcularConsumo(env, accountId, saleId); } catch (e) { console.error('inventario', e); }
+}
+
+export interface NuevaOrden { id: string; metodo?: string | null; credito?: boolean; origen?: string | null; ts?: number | null; prod?: string; inbox?: string | null; nombre?: string | null }
+
+/** Guarda una orden nueva (la usan la caja, los registros de máquinas y los pedidos que llegan solos). */
+export async function insertarOrden(env: Env, accountId: string, b: any, o: NuevaOrden) {
+  const pagar = o.metodo != null && o.metodo !== '';
+  const { st, items, subtotal, itbms, total, paginas, clientId, clientName: cn, email } = await armarOrden({ env, accountId }, b);
+  const clientName = cn ?? (o.nombre ? str(o.nombre, 80) || null : null);
+  const ts = o.ts ?? Date.now();
+  const { fecha, hora } = localParts(ts, st.tz);
+  const entrega = typeof b.entrega === 'string' && ENTREGA_RE.test(b.entrega) ? b.entrega : null;
+  const prod = o.prod && PROD.has(o.prod) ? o.prod : 'cola';
+  const stmts = [
+    env.DB.prepare(`INSERT INTO sales (id, account_id, numero, fecha, hora, ts, client_id, client_name, contacto_tel, contacto_dm, contacto_email,
+                        operador, nota, origen, estado, metodo, pagada_ts, pagada_fecha, pagada_hora, subtotal_cents, itbms_cents, total_cents, paginas, prod, prod_ts, entrega)
+                      VALUES (?, ?, (SELECT COALESCE(MAX(numero), 0) + 1 FROM sales WHERE account_id = ? AND anulada = 0),
+                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(o.id, accountId, accountId, fecha, hora, ts, clientId, clientName,
+        str(b.contacto_tel, 30) || null, str(b.contacto_dm, 60) || null, email || null,
+        str(b.operador, 60) || null, str(b.nota, 600) || null, o.origen ?? null,
+        pagar ? 'pagada' : o.credito ? 'credito' : 'pendiente', pagar ? o.metodo : null,
+        pagar ? ts : null, pagar ? fecha : null, pagar ? hora : null,
+        subtotal, itbms, total, paginas, prod, ts, entrega),
+    ...items.map((x: any) => env.DB.prepare(`INSERT INTO sale_items (sale_id, cat, tipo, tam, nombre, color, unidad, extra, cant, precio_cents, sub_cents)
+                                                VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(o.id, x.cat, x.tipo, x.tam, x.nombre, x.color, x.unidad, x.extra, x.cant, x.precio, x.sub)),
+    ...(await consumoStmts(env, accountId, o.id, items.map((x: any) => ({ tipo: x.tipo, tam: x.tam, cant: x.cant })), ts, fecha).catch(() => [])),
+    await bumpRev(env, accountId),
+  ];
+  if (o.inbox) stmts.push(env.DB.prepare(`UPDATE inbox_threads SET estado = 'orden', sale_id = ?, updated_at = ? WHERE id = ? AND account_id = ?`).bind(o.id, Date.now(), o.inbox, accountId));
+  await env.DB.batch(stmts);
+  return (await getSale(env, accountId, o.id))!;
 }
 
 export async function createSale(c: Ctx) {
@@ -347,29 +395,11 @@ export async function createSale(c: Ctx) {
   }
   const prev = await c.env.DB.prepare('SELECT id FROM sales WHERE account_id = ? AND (id = ? OR (origen IS NOT NULL AND origen = ?))').bind(c.accountId, id, origen).first<{ id: string }>();
   if (prev) return json({ ok: true, duplicate: true, sale: await getSale(c.env, c.accountId, prev.id) });
-
-  const { st, items, subtotal, itbms, total, paginas, clientId, clientName, email } = await armarOrden(c, b);
-
-  const ts = tsOrigen ?? Date.now();
-  const { fecha, hora } = localParts(ts, st.tz);
-  const stmts = [
-    c.env.DB.prepare(`INSERT INTO sales (id, account_id, numero, fecha, hora, ts, client_id, client_name, contacto_tel, contacto_dm, contacto_email,
-                        operador, nota, origen, estado, metodo, pagada_ts, pagada_fecha, pagada_hora, subtotal_cents, itbms_cents, total_cents, paginas)
-                      VALUES (?, ?, (SELECT COALESCE(MAX(numero), 0) + 1 FROM sales WHERE account_id = ? AND anulada = 0),
-                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .bind(id, c.accountId, c.accountId, fecha, hora, ts, clientId, clientName,
-        str(b.contacto_tel, 30) || null, str(b.contacto_dm, 60) || null, email || null,
-        str(b.operador, 60) || null, str(b.nota, 600) || null, origen,
-        pagar ? 'pagada' : 'pendiente', pagar ? b.metodo : null,
-        pagar ? ts : null, pagar ? fecha : null, pagar ? hora : null,
-        subtotal, itbms, total, paginas),
-    ...items.map((x: any) => c.env.DB.prepare(`INSERT INTO sale_items (sale_id, cat, tipo, tam, nombre, color, unidad, extra, cant, precio_cents, sub_cents)
-                                                VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-      .bind(id, x.cat, x.tipo, x.tam, x.nombre, x.color, x.unidad, x.extra, x.cant, x.precio, x.sub)),
-    await bumpRev(c.env, c.accountId),
-  ];
-  await c.env.DB.batch(stmts);
-  return json({ ok: true, sale: await getSale(c.env, c.accountId, id) }, 201);
+  const sale = await insertarOrden(c.env, c.accountId, b, {
+    id, metodo: pagar ? b.metodo : null, credito: !!b.credito, origen, ts: tsOrigen,
+    prod: origen ? 'entregado' : (PROD.has(b.prod) ? b.prod : 'cola'), inbox: str(b.inbox_id, 64) || null,
+  });
+  return json({ ok: true, sale }, 201);
 }
 
 /** Editar una orden (productos, cliente, contacto, nota, operador). */
@@ -382,15 +412,17 @@ export async function updateSale(c: Ctx) {
   const { items, subtotal, itbms, total, paginas, clientId, clientName, email } = await armarOrden(c, b);
   await c.env.DB.batch([
     c.env.DB.prepare(`UPDATE sales SET client_id = ?, client_name = ?, contacto_tel = ?, contacto_dm = ?, contacto_email = ?, operador = ?, nota = ?,
-                        subtotal_cents = ?, itbms_cents = ?, total_cents = ?, paginas = ? WHERE id = ? AND account_id = ? AND anulada = 0`)
+                        subtotal_cents = ?, itbms_cents = ?, total_cents = ?, paginas = ?, entrega = ? WHERE id = ? AND account_id = ? AND anulada = 0`)
       .bind(clientId, clientName, str(b.contacto_tel, 30) || null, str(b.contacto_dm, 60) || null, email || null,
-        str(b.operador, 60) || null, str(b.nota, 600) || null, subtotal, itbms, total, paginas, id, c.accountId),
+        str(b.operador, 60) || null, str(b.nota, 600) || null, subtotal, itbms, total, paginas,
+        typeof b.entrega === 'string' && ENTREGA_RE.test(b.entrega) ? b.entrega : null, id, c.accountId),
     c.env.DB.prepare('DELETE FROM sale_items WHERE sale_id = ?').bind(id),
     ...items.map((x: any) => c.env.DB.prepare(`INSERT INTO sale_items (sale_id, cat, tipo, tam, nombre, color, unidad, extra, cant, precio_cents, sub_cents)
                                                 VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
       .bind(id, x.cat, x.tipo, x.tam, x.nombre, x.color, x.unidad, x.extra, x.cant, x.precio, x.sub)),
     await bumpRev(c.env, c.accountId),
   ]);
+  await inventario(c.env, c.accountId, id);
   return json({ ok: true, sale: await getSale(c.env, c.accountId, id) });
 }
 
@@ -425,6 +457,7 @@ export async function mergeSales(c: Ctx) {
                       WHERE account_id = ? AND anulada = 0`).bind(c.accountId, c.accountId),
     await bumpRev(c.env, c.accountId),
   ]);
+  for (const r of results) await inventario(c.env, c.accountId, r.id);
   return json({ ok: true, sale: await getSale(c.env, c.accountId, dest.id) });
 }
 
@@ -443,9 +476,19 @@ export async function paySale(c: Ctx) {
                                       pagada_ts = CASE WHEN origen IS NOT NULL THEN ts ELSE ? END,
                                       pagada_fecha = CASE WHEN origen IS NOT NULL THEN fecha ELSE ? END,
                                       pagada_hora = CASE WHEN origen IS NOT NULL THEN hora ELSE ? END
-                                    WHERE id = ? AND account_id = ? AND estado = 'pendiente'`)
+                                    WHERE id = ? AND account_id = ? AND estado IN ('pendiente', 'credito')`)
     .bind(b.metodo, st.itbms.tasa, st.itbms.tasa, ts, fecha, hora, c.params.id, c.accountId).run();
-  if (!r.meta.changes) throw new HttpError(409, 'La orden ya no está pendiente');
+  if (!r.meta.changes) throw new HttpError(409, 'La orden ya no está por cobrar');
+  await (await bumpRev(c.env, c.accountId)).run();
+  return json({ ok: true, sale: await getSale(c.env, c.accountId, c.params.id) });
+}
+
+/** Pasar una orden por cobrar entre Pendiente y Crédito. */
+export async function setEstado(c: Ctx) {
+  const b = await readJson(c.req);
+  if (b.estado !== 'pendiente' && b.estado !== 'credito') throw new HttpError(400, 'Estado inválido');
+  const r = await c.env.DB.prepare(`UPDATE sales SET estado = ? WHERE id = ? AND account_id = ? AND estado IN ('pendiente', 'credito')`).bind(b.estado, c.params.id, c.accountId).run();
+  if (!r.meta.changes) throw new HttpError(409, 'Solo se cambia el estado de órdenes por cobrar');
   await (await bumpRev(c.env, c.accountId)).run();
   return json({ ok: true, sale: await getSale(c.env, c.accountId, c.params.id) });
 }
@@ -477,7 +520,7 @@ export async function payMany(c: Ctx) {
         pagada_ts = CASE WHEN origen IS NOT NULL THEN ts ELSE ? END,
         pagada_fecha = CASE WHEN origen IS NOT NULL THEN fecha ELSE ? END,
         pagada_hora = CASE WHEN origen IS NOT NULL THEN hora ELSE ? END
-      WHERE id = ? AND account_id = ? AND estado = 'pendiente'`).bind(b.metodo, st.itbms.tasa, st.itbms.tasa, ts, fecha, hora, str(id, 64), c.accountId)));
+      WHERE id = ? AND account_id = ? AND estado IN ('pendiente', 'credito')`).bind(b.metodo, st.itbms.tasa, st.itbms.tasa, ts, fecha, hora, str(id, 64), c.accountId)));
     n += res.reduce((a, x) => a + (x.meta.changes || 0), 0);
   }
   if (n) await (await bumpRev(c.env, c.accountId)).run();
@@ -494,6 +537,7 @@ export async function voidSale(c: Ctx) {
   if (!r.meta.changes) throw new HttpError(404, 'Orden no encontrada o ya anulada');
   // Las órdenes activas siguientes recorren su número para no dejar huecos
   if (cur.numero != null) await c.env.DB.prepare('UPDATE sales SET numero = numero - 1 WHERE account_id = ? AND anulada = 0 AND numero > ?').bind(c.accountId, cur.numero).run();
+  await inventario(c.env, c.accountId, c.params.id);
   await (await bumpRev(c.env, c.accountId)).run();
   return json({ ok: true });
 }
@@ -515,19 +559,19 @@ export async function summary(c: Ctx) {
                       WHERE s.account_id = ? AND s.fecha BETWEEN ? AND ? AND s.anulada = 0
                       GROUP BY s.fecha, i.cat, i.tipo, i.nombre, i.tam, i.color, i.unidad`).bind(c.accountId, from, to),
     // pendientes creadas en el rango
-    c.env.DB.prepare(`SELECT fecha, COUNT(*) AS n, SUM(total_cents) AS t FROM sales WHERE account_id = ? AND fecha BETWEEN ? AND ? AND estado = 'pendiente' GROUP BY fecha`).bind(c.accountId, from, to),
+    c.env.DB.prepare(`SELECT fecha, estado, COUNT(*) AS n, SUM(total_cents) AS t FROM sales WHERE account_id = ? AND fecha BETWEEN ? AND ? AND estado IN ('pendiente', 'credito') GROUP BY fecha, estado`).bind(c.accountId, from, to),
     c.env.DB.prepare('SELECT fecha, inicio, fin, fiery, efectivo_cents, nota FROM closings WHERE account_id = ? AND fecha BETWEEN ? AND ?').bind(c.accountId, from, to),
     c.env.DB.prepare('SELECT fecha, maquina, SUM(color) AS color, SUM(bn) AS bn, COUNT(*) AS trabajos FROM machine_jobs WHERE account_id = ? AND fecha BETWEEN ? AND ? GROUP BY fecha, maquina').bind(c.accountId, from, to),
   ]);
   const days: Record<string, any> = {};
   const day = (f: string) => days[f] ??= {
-    n: 0, total: 0, sub: 0, itbms: 0, cobrado: 0, pendN: 0, pendT: 0,
+    n: 0, total: 0, sub: 0, itbms: 0, cobrado: 0, pendN: 0, pendT: 0, credN: 0, credT: 0,
     met: { efectivo: { n: 0, t: 0 }, tarjeta: { n: 0, t: 0 }, yappy: { n: 0, t: 0 }, pordefinir: { n: 0, t: 0 } }, items: [] as any[], maq: {} as Record<string, any>,
   };
   for (const r of cr.results as any[]) Object.assign(day(r.fecha), { n: r.n, total: r.t || 0, sub: r.sb || 0, itbms: r.it || 0 });
   for (const r of pg.results as any[]) { const d = day(r.fecha); if (d.met[r.metodo]) d.met[r.metodo] = { n: r.n, t: r.t }; d.cobrado += r.t || 0; }
   for (const r of it.results as any[]) day(r.fecha).items.push({ cat: r.cat, tipo: r.tipo, nombre: r.nombre, tam: r.tam, color: !!r.color, unidad: r.unidad, cant: r.cant, monto: r.monto });
-  for (const r of pend.results as any[]) Object.assign(day(r.fecha), { pendN: r.n, pendT: r.t || 0 });
+  for (const r of pend.results as any[]) Object.assign(day(r.fecha), r.estado === 'credito' ? { credN: r.n, credT: r.t || 0 } : { pendN: r.n, pendT: r.t || 0 });
   for (const r of mq.results as any[]) day(r.fecha).maq[r.maquina] = { color: r.color, bn: r.bn, trabajos: r.trabajos };
   const closings: Record<string, any> = {};
   for (const r of cl.results as any[]) closings[r.fecha] = r;

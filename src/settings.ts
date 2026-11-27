@@ -16,9 +16,10 @@ export function defaults(): Settings {
     catalogo: mergeCatalogo(null),
     meta: 2000000, dias: 26, diasSemana: 6, tz: 'America/Panama',
     itbms: { modo: 'aparte', tasa: 7 },
-    empresa: { telefono: '6883-2728', correo: 'ventas@copiasrapidas.com', direccion: '', ruc: '' },
+    empresa: { telefono: '6883-2728', correo: 'ventas@copiasrapidas.com', direccion: '', ruc: '', dv: '' },
     operadores: [],
     maquinas: structuredClone(DEF_MAQUINAS),
+    canales: { token: '', ia: true, autoOrden: true, avisoListo: true },
   };
 }
 
@@ -41,9 +42,14 @@ export function normalize(d: any): Settings {
   if (typeof d?.tz === 'string' && validTz(d.tz)) s.tz = d.tz;
   const tasa = Number(d?.itbms?.tasa); if (Number.isFinite(tasa) && tasa > 0 && tasa <= 30) s.itbms.tasa = Math.round(tasa * 100) / 100;
   if (d?.empresa && typeof d.empresa === 'object') {
-    for (const k of ['telefono', 'correo', 'direccion', 'ruc'] as const) if (typeof d.empresa[k] === 'string') s.empresa[k] = str(d.empresa[k], 120);
+    for (const k of ['telefono', 'correo', 'direccion', 'ruc', 'dv'] as const) if (typeof d.empresa[k] === 'string') s.empresa[k] = str(d.empresa[k], 120);
     const logo = d.empresa.logo;
     if (typeof logo === 'string' && logo.length <= 80_000 && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(logo)) s.empresa.logo = logo;
+  }
+  if (d?.canales && typeof d.canales === 'object') {
+    const k = d.canales;
+    if (typeof k.token === 'string' && /^[0-9a-f]{24}$/.test(k.token)) s.canales.token = k.token;
+    for (const b of ['ia', 'autoOrden', 'avisoListo'] as const) if (typeof k[b] === 'boolean') s.canales[b] = k[b];
   }
   if (Array.isArray(d?.operadores)) s.operadores = normOps(d.operadores);
   if (Array.isArray(d?.maquinas)) {

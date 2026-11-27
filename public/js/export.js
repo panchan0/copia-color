@@ -7,7 +7,7 @@ import { numOrden } from './workorder.js';
 /* ---------- modelo común para Excel e impresión ---------- */
 const prodName = it => (it.tipo === 'imp' || it.tipo === 'cop') ? `${it.tipo === 'imp' ? 'Impresión' : 'Copia'} a color` : it.nombre;
 const tamName = it => (it.tipo === 'imp' || it.tipo === 'cop') ? ({ carta: 'Carta 8.5 x 11', legal: 'Legal 8.5 x 14' }[it.tam] || it.nombre) : (it.tam || '');
-const pagoTxt = v => v.anulada || v.estado === 'anulada' ? 'ANULADA' : v.estado === 'pendiente' ? 'PENDIENTE' : `${METODOS[v.metodo]}${v.pagada_fecha && v.pagada_fecha !== v.fecha ? ` (${dmy(v.pagada_fecha).slice(0, 5)})` : ''}`;
+const pagoTxt = v => v.anulada || v.estado === 'anulada' ? 'ANULADA' : v.estado === 'pendiente' ? 'PENDIENTE' : v.estado === 'credito' ? 'CRÉDITO' : `${METODOS[v.metodo]}${v.pagada_fecha && v.pagada_fecha !== v.fecha ? ` (${dmy(v.pagada_fecha).slice(0, 5)})` : ''}`;
 
 function modelo(p) {
   const s = p.stats;
@@ -42,7 +42,7 @@ function modelo(p) {
     sub: tot('sub'), itbms: tot('itbms'), total: tot('total'),
     totales: [
       ['Órdenes', String(validas.length)], ['Subtotal', money(s.sub)], [tasa(), money(s.itbms)], ['Total de órdenes', money(s.total)],
-      ['Cobrado', money(s.cobrado)], ['Por cobrar (pendientes)', `${money(s.pendT)} · ${s.pendN} órdenes`],
+      ['Cobrado', money(s.cobrado)], ['Por cobrar (pendientes)', `${money(s.pendT)} · ${s.pendN} órdenes`], ['A crédito', `${money(s.credT || 0)} · ${s.credN || 0} órdenes`],
       ['Páginas a color', int(s.colorPags)], ['Páginas / hojas B/N', int(s.bnPags)]
     ],
   };

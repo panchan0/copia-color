@@ -213,7 +213,8 @@ function paint() {
     actual ? ['Proyección', money0(prom * lab), `a este ritmo, ${lab} días`] : ['Resultado', money0(s.cobrado), s.cobrado >= meta ? 'meta cumplida' : `faltaron ${money0(meta - s.cobrado)}`],
     ['Páginas a color', int(s.colorPags), `B/N ${int(s.bnPags)}`],
     actual ? ['Faltan por día', falta ? money0(falta / rest) : '$0', falta ? `${rest} días restantes` : 'meta alcanzada'] : ['Ventas', int(s.n), ''],
-    ['Por cobrar', money0(s.pendT), `${int(s.pendN)} órdenes`],
+    ['Por cobrar', money0(s.pendT), `${int(s.pendN)} ${s.pendN === 1 ? 'orden' : 'órdenes'}`],
+    ['A crédito', money0(s.credT || 0), `${int(s.credN || 0)} ${s.credN === 1 ? 'orden' : 'órdenes'}`],
   ];
   root.querySelector('[data-kpis]').innerHTML = k.map(([l, v, sub]) => `<div class="kpi"><div class="label" style="margin:0">${l}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`).join('');
 

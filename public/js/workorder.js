@@ -12,6 +12,7 @@ const tam = it => (it.tipo === 'imp' || it.tipo === 'cop') ? ({ carta: 'Carta 8.
 function estado(v) {
   if (v.anulada || v.estado === 'anulada') return { t: 'ANULADA', d: '' };
   if (v.estado === 'pendiente') return { t: 'PENDIENTE DE PAGO', d: '' };
+  if (v.estado === 'credito') return { t: 'CRÉDITO', d: '' };
   return { t: 'PAGADA', d: `${METODOS[v.metodo] || ''} · ${v.pagada_fecha ? dmy(v.pagada_fecha) : ''} ${v.pagada_hora || ''}`.trim() };
 }
 const opTxt = v => opTexto(v, S.settings.operadores) || '—';
@@ -24,6 +25,7 @@ function empresa() {
 function sello(v, a) {
   if (v.anulada || v.estado === 'anulada') return { txt: 'ANULADO' };
   if (v.estado === 'pendiente') return a.sello_pendiente ? { img: a.sello_pendiente } : { txt: 'PENDIENTE' };
+  if (v.estado === 'credito') return a.sello_credito ? { img: a.sello_credito } : { txt: 'CRÉDITO' };
   return a.sello_pagado ? { img: a.sello_pagado } : { txt: 'CANCELADO' };
 }
 const imgDims = src => new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok({ w: i.width, h: i.height }); i.onerror = ko; i.src = src; });

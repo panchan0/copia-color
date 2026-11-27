@@ -13,8 +13,11 @@ import * as reportes from './views/reportes.js';
 import * as ajustes from './views/ajustes.js';
 import * as ordenes from './views/ordenes.js';
 import * as orden from './views/orden.js';
+import * as trabajos from './views/trabajos.js';
+import * as inventario from './views/inventario.js';
+import { iniciarAvisos } from './avisos.js';
 
-const VIEWS = { dia, caja, ordenes, orden, reportes, ajustes };
+const VIEWS = { dia, caja, ordenes, orden, trabajos, inventario, reportes, ajustes };
 aplicarTema();
 for (const b of document.querySelectorAll('nav.tabs button[data-v]:not(.acct)')) {
   const k = b.dataset.v === 'ajustes' ? 'operadores' : b.dataset.v; b.querySelector('svg')?.remove();
@@ -32,6 +35,7 @@ function go(v, push = true) {
   }
   let sub = null;
   if (v.startsWith('ajustes=')) { sub = v.slice(8); v = 'ajustes'; push = false; }
+  if (v.startsWith('trabajos=')) { sub = decodeURIComponent(v.slice(9)); v = 'trabajos'; push = false; }
   if (!VIEWS[v]) v = 'dia';
   closeMenu();
   const antes = vista, subAntes = antes === 'ajustes' ? ajustes.pagina() : null;
@@ -55,7 +59,7 @@ function go(v, push = true) {
     document.dispatchEvent(new Event('vista-visible'));
   });
 }
-const ORDEN = ['dia', 'ordenes', 'reportes', 'ajustes'];
+const ORDEN = ['dia', 'ordenes', 'trabajos', 'inventario', 'reportes', 'ajustes'];
 
 function paintAcct() {
   const logo = S.settings?.empresa?.logo;
@@ -82,6 +86,7 @@ async function enter() {
   dia.setFecha(today());
   go(location.hash.slice(1) || 'dia');
   startSync();
+  iniciarAvisos();
 }
 
 async function salir(todos = false) {

@@ -4,6 +4,10 @@ import { requireAccount } from './auth';
 import * as R from './routes';
 import * as SEC from './security';
 import { ensureSchema } from './schema';
+import * as INV from './inventario';
+import * as TR from './trabajos';
+import * as FAC from './facturas';
+import * as PUSH from './push';
 
 type Handler = (c: Ctx) => Promise<Response>;
 const routes: [string, RegExp, Handler][] = [];
@@ -32,6 +36,7 @@ add('POST', '/api/sales/:id/void', R.voidSale);
 add('PUT', '/api/sales/:id', R.updateSale);
 add('POST', '/api/sales/:id/pay', R.paySale);
 add('POST', '/api/sales/:id/metodo', R.setMetodo);
+add('POST', '/api/sales/:id/estado', R.setEstado);
 add('POST', '/api/sales/merge', R.mergeSales);
 add('POST', '/api/sales/pay-many', R.payMany);
 add('GET', '/api/orders', R.listOrders);
@@ -41,6 +46,31 @@ add('GET', '/api/sales/:id', R.saleById);
 add('GET', '/api/summary', R.summary);
 add('GET', '/api/closings/:fecha', R.getClosing);
 add('PUT', '/api/closings/:fecha', R.putClosing);
+// Inventario
+add('GET', '/api/inventario', INV.listItems);
+add('POST', '/api/inventario', INV.createItem);
+add('PUT', '/api/inventario/:id', INV.updateItem);
+add('POST', '/api/inventario/:id/mov', INV.addMov);
+add('GET', '/api/inventario/:id/movs', INV.listMovs);
+// Trabajos: cola de producción y pedidos entrantes
+add('GET', '/api/cola', TR.cola);
+add('POST', '/api/sales/:id/prod', TR.setProd);
+add('GET', '/api/inbox', TR.listInbox);
+add('GET', '/api/inbox/:id', TR.getThread);
+add('POST', '/api/inbox/:id/reply', TR.replyThread);
+add('POST', '/api/inbox/:id/estado', TR.setThreadEstado);
+add('GET', '/api/files/:id', TR.getFile);
+add('GET', '/api/wa-media/:id', TR.getWaMedia);
+add('GET', '/api/canales', TR.canales);
+add('POST', '/api/canales', TR.canales);
+add('GET', '/api/push/key', PUSH.pushKey);
+add('POST', '/api/push/sub', PUSH.pushSub);
+add('GET', '/api/avisos', PUSH.ultimoAviso);
+// Facturas
+add('GET', '/api/invoices', FAC.listInvoices);
+add('POST', '/api/invoices', FAC.createInvoice);
+add('GET', '/api/invoices/:id', FAC.getInvoice);
+add('POST', '/api/invoices/:id/void', FAC.voidInvoice);
 
 function checkCsrf(req: Request, url: URL) {
   if (req.method === 'GET' || req.method === 'HEAD') return;
@@ -60,10 +90,16 @@ function estadoPrueba(env: Env) {
 }
 
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env, exec: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
     try {
+      // WhatsApp (Meta) llama sin cookies ni encabezados propios
+      if (url.pathname === '/api/wa/webhook') {
+        if (estadoPrueba(env)?.vencida) return new Response('ok');
+        try { await ensureSchema(env); } catch (e) { console.error('ensureSchema', e); }
+        return await TR.waWebhook(req, env, exec);
+      }
       checkCsrf(req, url);
       // Si la actualización de tablas falla, se registra y la app sigue funcionando
       try { await ensureSchema(env); } catch (e) { console.error('ensureSchema', e); }
@@ -72,6 +108,8 @@ export default {
       if (p === '/api/config' && m === 'GET') return json({ signup: (env.ALLOW_SIGNUP || 'true') === 'true', version: env.CF_VERSION_METADATA?.id || 'dev', prueba });
       // Período de prueba vencido: la información se conserva, pero nadie puede entrar ni verla
       if (prueba?.vencida && p !== '/api/auth/logout') throw new HttpError(402, 'El período de prueba terminó. Contacta al proveedor del sistema para activarlo.');
+      if (p === '/api/public/negocio' && m === 'GET') return await TR.publicNegocio(env, url);
+      if (p === '/api/public/pedido' && m === 'POST') return await TR.publicPedido(env, req);
       if (p === '/api/auth/register' && m === 'POST') return await R.register(env, req, url);
       if (p === '/api/auth/login' && m === 'POST') return await R.login(env, req, url);
       if (p === '/api/auth/logout' && m === 'POST') return await R.logout(env, req, url);
@@ -84,7 +122,7 @@ export default {
           const accountId = await requireAccount(env, req);
           const params: Record<string, string> = {};
           for (const [k, v] of Object.entries(match.groups || {})) params[k] = decodeURIComponent(v);
-          return await h({ env, req, url, accountId, params });
+          return await h({ env, req, url, accountId, params, exec });
         }
       }
       throw new HttpError(404, 'No encontrado');
@@ -94,5 +132,12 @@ export default {
       const detalle = e instanceof Error ? e.message.slice(0, 160) : String(e).slice(0, 160);
       return json({ error: `Error del servidor: ${detalle}` }, 500);
     }
+  },
+
+  /** Correos que llegan por Cloudflare Email Routing. */
+  async email(message: ForwardableEmailMessage, env: Env, exec: ExecutionContext) {
+    if (estadoPrueba(env)?.vencida) { message.setReject('Servicio no disponible'); return; }
+    await ensureSchema(env);
+    await TR.correoEntrante(message, env, exec);
   },
 } satisfies ExportedHandler<Env>;

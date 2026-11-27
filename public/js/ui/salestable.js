@@ -7,6 +7,7 @@ export const numTxt = v => numOrdenTxt(v);
 export function estadoTag(v) {
   if (v.anulada || v.estado === 'anulada') return '<span class="tag t-anul">Anulada</span>';
   if (v.estado === 'pendiente') return '<span class="tag t-pend">Pendiente</span>';
+  if (v.estado === 'credito') return '<span class="tag t-cred">Crédito</span>';
   return `<span class="tag m-${v.metodo}">${METODOS[v.metodo] || 'Pagada'}</span>`;
 }
 

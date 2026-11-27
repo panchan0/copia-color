@@ -29,10 +29,11 @@ async function checkVersion() {
 let lastV = 0;
 async function check() {
   if (Date.now() - lastV > 60000) { lastV = Date.now(); checkVersion(); }
-  if (checking || document.hidden || !S.account) return;
+  if (checking || !S.account) return;
   checking = true;
   try {
-    const { rev } = await api('/api/rev');
+    const { rev, entrantes, ultimo } = await api('/api/rev');
+    emit({ entrantes, ultimo });
     if (rev !== S.rev) {
       S.rev = rev;
       await Promise.all([loadMe(), loadClients()]);

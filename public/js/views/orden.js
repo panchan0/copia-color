@@ -4,6 +4,7 @@ import { toast, ICON } from '../ui/dom.js';
 import { bindCobrar, bindMetodo } from '../ui/cobrar.js';
 import { estadoTag, numTxt } from '../ui/salestable.js';
 import { imprimirOrden, descargarOrden } from '../workorder.js';
+import { facturar, imprimirFactura } from '../facturas.js';
 import { S } from '../store.js';
 import * as caja from './caja.js';
 import { esc, money, dmy, METODOS, itemLabel, fmtCant, opTexto } from '../util.js';
@@ -49,8 +50,10 @@ function paint() {
       ${v.pagada_fecha && !anul ? fila('Cobrada', `${dmy(v.pagada_fecha)} · ${esc(v.pagada_hora || '')}`) : ''}
       ${v.estado === 'pagada' && !anul ? fila('Método', esc(METODOS[v.metodo] || '—')) : ''}
       ${fila('Operador', esc(op))}
+      ${v.entrega ? fila('Para', esc(new Date(v.entrega).toLocaleString('es-PA', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))) : ''}
     </div>
   </div>
+  ${anul ? '' : `<div class="card"><div class="label">Producción</div><div class="seg prodseg" data-prodseg>${[['cola', 'En cola'], ['proceso', 'En proceso'], ['listo', 'Listo'], ['entregado', 'Entregado']].map(([k, l]) => `<button type="button" data-p="${k}" class="${(v.prod || 'entregado') === k ? 'sel' : ''}">${l}</button>`).join('')}</div></div>`}
   <div class="card">
     <div class="label">Cliente</div>
     <div class="kvs">${fila('Nombre', v.client_name ? esc(v.client_name) : 'Contado')}${contacto}${fila('Nota', esc(v.nota || ''))}</div>
@@ -62,9 +65,11 @@ function paint() {
     <div class="ticket-total"><span>Total</span><span class="big num">${money(v.total_cents)}</span></div>
   </div>
   <div class="card oacts">
-    ${!anul && v.estado === 'pendiente' ? `<button class="btn block cob" data-id="${esc(v.id)}">Cobrar ${money(v.total_cents)}</button>` : ''}
+    ${!anul && (v.estado === 'pendiente' || v.estado === 'credito') ? `<button class="btn block cob" data-id="${esc(v.id)}">Cobrar ${money(v.total_cents)}</button>
+      <button class="btn line block" data-estado="${v.estado === 'credito' ? 'pendiente' : 'credito'}">${v.estado === 'credito' ? 'Pasar a pendiente' : 'Pasar a crédito'}</button>` : ''}
     ${!anul && v.estado === 'pagada' && v.metodo === 'pordefinir' ? `<button class="btn block met" data-id="${esc(v.id)}">Poner método de pago</button>` : ''}
     ${anul ? '' : `<button class="btn line block" data-editar>${ICON.edit || ''}Editar orden</button>`}
+    ${anul ? '' : v.factura_id ? `<button class="btn line block" data-verfac="${esc(v.factura_id)}">${ICON.print}Imprimir factura</button>` : `<button class="btn line block" data-facturar>Facturar</button>`}
     <div class="grid2">
       <button class="btn line" data-print>${ICON.print}Imprimir</button>
       <button class="btn line" data-pdf>${ICON.down}PDF</button>
@@ -78,6 +83,21 @@ async function onClick(e) {
   if (e.target.closest('[data-print]')) return imprimirOrden(venta);
   if (e.target.closest('[data-pdf]')) return descargarOrden(venta);
   if (e.target.closest('[data-editar]')) { caja.editar(venta); location.hash = '#caja'; return; }
+  const ps = e.target.closest('[data-prodseg] [data-p]');
+  if (ps) {
+    try { const r = await api(`/api/sales/${venta.id}/prod`, { method: 'POST', body: { prod: ps.dataset.p } }); venta = r.sale; paint(); toast(ps.dataset.p === 'listo' && r.avisado ? 'Listo · se le avisó al cliente' : 'Producción actualizada'); emit('sale'); syncNow(); }
+    catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (e.target.closest('[data-facturar]')) { const f = await facturar([venta]); if (f) load(); return; }
+  const vf = e.target.closest('[data-verfac]');
+  if (vf) { try { const r = await api(`/api/invoices/${vf.dataset.verfac}`); imprimirFactura(r.invoice); } catch (err) { toast(err.message, true); } return; }
+  const est = e.target.closest('[data-estado]');
+  if (est) {
+    try { const r = await api(`/api/sales/${venta.id}/estado`, { method: 'POST', body: { estado: est.dataset.estado } }); venta = r.sale; paint(); toast(est.dataset.estado === 'credito' ? 'Orden a crédito' : 'Orden pendiente'); emit('sale'); syncNow(); }
+    catch (err) { toast(err.message, true); }
+    return;
+  }
   if (!e.target.closest('[data-anular]')) return;
   if (!armada) { armada = true; paint(); setTimeout(() => { if (armada) { armada = false; paint(); } }, 4000); return; }
   armada = false;

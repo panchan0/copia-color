@@ -1,12 +1,13 @@
 import { api } from '../api.js';
 import { S, today, on, emit, syncNow } from '../store.js';
 import { $, toast, choice, ICON } from '../ui/dom.js';
-import { metodoPicker, clientePicker, listPicker, operadorPicker, CREDITO } from '../ui/pickers.js';
+import { metodoPicker, clientePicker, listPicker, operadorPicker } from '../ui/pickers.js';
 import { imprimirOrden, descargarOrden } from '../workorder.js';
 import { esc, money, toCents, uuid, METODOS, calcItbms, fmtCant, baseNombre, CATS2, catDe, opCode, numOrdenTxt } from '../util.js';
 
-let root, cat = 'imp', base = null, enColor = true, editId = null, editNum = null, servId = null, tamId = null, cant = 1, ticket = [], metodo = null, clientId = null, credito = false, operador = null, paying = false;
-let paints = {}, pendingId = null;
+let root, cat = 'imp', base = null, enColor = true, editId = null, editNum = null, servId = null, tamId = null, cant = 1, ticket = [], metodo = null, clientId = null, operador = null, paying = false;
+let paints = {}, pendingId = null, inboxId = null;
+let entrega = (() => { try { return localStorage.getItem('cc_entrega') || 'cola'; } catch { return 'cola'; } })();
 try { operador = localStorage.getItem('cc_operador') || null; } catch { /* sin almacenamiento */ }
 
 const servicios = () => S.settings.catalogo.filter(s => catDe(s) === cat && !s.oculto && s.tams.some(t => !t.oculto));
@@ -73,6 +74,8 @@ export function mount(el) {
           <div class="field"><label for="ctDm">DM</label><input class="input" id="ctDm" maxlength="60" placeholder="@usuario"></div>
           <div class="field span2"><label for="ctEmail">Correo</label><input class="input" id="ctEmail" type="email" maxlength="120"></div>
           <div class="field"><label>Operador</label><button type="button" data-op></button></div>
+          <div class="field" data-fentr><label>Entrega</label><div class="seg tema" data-entr><button type="button" data-e="ahora">Al momento</button><button type="button" data-e="cola">A producción</button></div></div>
+          <div class="field span2 hide" data-fpara><label for="oPara">Para cuándo</label><input class="input" id="oPara" type="datetime-local"></div>
           <div class="field span2"><label for="oNota">Nota</label><textarea class="input ta" id="oNota" maxlength="600" rows="2"></textarea></div>
         </div>
       </div>
@@ -113,6 +116,7 @@ export function mount(el) {
         </div>
         <div class="payrow">
           <button class="btn line" data-pend>Guardar pendiente</button>
+          <button class="btn line" data-cred>A crédito</button>
           <button class="btn pay" data-pay>Cobrar</button>
         </div>
       </div>
@@ -144,13 +148,17 @@ export function mount(el) {
   root.querySelector('[data-clear]').onclick = () => { ticket = []; paint(); };
   root.querySelector('[data-lines]').addEventListener('click', e => { const b = e.target.closest('.x'); if (!b) return; ticket.splice(Number(b.dataset.i), 1); paint(); });
   paints.met = metodoPicker(root.querySelector('[data-met]'), () => metodo, v => { metodo = v; paint(); if (v === 'efectivo') setTimeout(() => $('#recibe', root).focus(), 30); });
-  paints.cli = clientePicker(root.querySelector('[data-cli]'), () => clientId || (credito ? CREDITO : null), v => {
-    credito = v === CREDITO; clientId = credito ? null : v; llenarContacto();
-  });
+  paints.cli = clientePicker(root.querySelector('[data-cli]'), () => clientId, v => { clientId = v; llenarContacto(); });
   paints.op = operadorPicker(root.querySelector('[data-op]'), () => operador, v => { operador = v; try { localStorage.setItem('cc_operador', v); } catch { /* */ } });
   $('#recibe', root).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); guardar(true); } });
   root.querySelector('[data-pay]').onclick = () => guardar(true);
+  root.querySelector('[data-entr]').addEventListener('click', e => {
+    const b = e.target.closest('[data-e]'); if (!b) return;
+    entrega = b.dataset.e; try { localStorage.setItem('cc_entrega', entrega); } catch { /* */ }
+    paintEntrega();
+  });
   root.querySelector('[data-pend]').onclick = () => guardar(false);
+  root.querySelector('[data-cred]').onclick = () => guardar(false, true);
   on(what => {
     if (what === 'remote') {
       if (clientId && !S.clients.some(c => c.id === clientId)) clientId = null;
@@ -169,20 +177,57 @@ export function show() {
   operador = m ? opCode(m) : null;
   root.querySelector('[data-tit]').textContent = editId ? `Editar orden N° ${editNum}` : 'Nueva orden';
   root.querySelector('[data-pay]').classList.toggle('hide', !!editId);
+  root.querySelector('[data-cred]').classList.toggle('hide', !!editId);
   root.querySelector('[data-met]').closest('.field').classList.toggle('hide', !!editId);
   root.querySelector('[data-pend]').textContent = editId ? 'Guardar cambios' : 'Guardar pendiente';
   root.querySelector('[data-pend]').classList.toggle('pay', !!editId);
-  paints.cat(); paints.serv(); paints.tam(); paints.cli(); paints.op(); paint();
+  paints.cat(); paints.serv(); paints.tam(); paints.cli(); paints.op(); paint(); paintEntrega();
   root.querySelectorAll('textarea.ta').forEach(autoAlto);
 }
 
+function paintEntrega() {
+  root.querySelector('[data-fentr]').classList.toggle('hide', !!editId);
+  root.querySelectorAll('[data-entr] button').forEach(b => b.classList.toggle('sel', b.dataset.e === entrega));
+  root.querySelector('[data-fpara]').classList.toggle('hide', entrega !== 'cola' && !editId);
+}
+
 /** Abrir el formulario para una orden nueva (limpio) o para editar una existente. */
-export function nueva() { if (editId) limpiar(); editId = null; editNum = null; }
+export function nueva() { if (editId || inboxId) limpiar(); editId = null; editNum = null; }
+
+/** Orden a partir de un pedido que llegó por la web, WhatsApp o correo. */
+export function desdeSolicitud(t) {
+  limpiar();
+  editId = null; editNum = null; inboxId = t.id; entrega = 'cola';
+  const cat = S.settings.catalogo;
+  ticket = (t.propuesta || []).map(l => {
+    const s = cat.find(x => x.id === l.serv), tm = s?.tams.find(x => x.id === l.tam);
+    if (!s || !tm || s.libre) return null;
+    const pags = Number(l.paginas) || undefined, tr = tm.tramos ? tramo(tm, pags || 0) : null;
+    const precio = tm.tramos ? (tr ? tr.precio : 0) : tm.precio;
+    const cant = Number(l.cant) || 1;
+    if (!precio) return null;
+    const extraUser = l.detalle || '';
+    return {
+      serv: s.id, tam: tm.id, cant, precio_cents: precio, sub_cents: Math.round(precio * cant), paginas: tm.tramos ? pags : undefined,
+      nombre: s.nombre, tamano: tm.nombre, color: s.color, extraUser,
+      extra: [tr ? `${pags} págs (tarifa ${tr.desde} a ${tr.hasta})` : '', extraUser].filter(Boolean).join(' · ') || null,
+      unidad: s.unidad, tamLabel: tm.nombre,
+    };
+  }).filter(Boolean);
+  const tel = t.canal === 'correo' ? '' : t.contacto, mail = t.canal === 'correo' ? t.contacto : '';
+  const cli = S.clients.find(c => (tel && (c.phone || '').replace(/\D/g, '').endsWith(tel.slice(-8))) || (mail && (c.email || '').toLowerCase() === mail));
+  clientId = cli?.id || null;
+  setTimeout(() => {
+    $('#ctTel', root).value = tel || cli?.phone || ''; $('#ctEmail', root).value = mail || cli?.email || '';
+    $('#oNota', root).value = [`Pedido por ${({ web: 'la web', whatsapp: 'WhatsApp', correo: 'correo' })[t.canal] || t.canal}${t.nombre ? ` · ${t.nombre}` : ''}`, t.resumen || ''].filter(Boolean).join('\n');
+    root.querySelectorAll('textarea.ta').forEach(autoAlto);
+  });
+}
 export function editar(v) {
   limpiar();
   editId = v.id; editNum = numOrdenTxt(v);
+  setTimeout(() => { $('#oPara', root).value = v.entrega || ''; });
   clientId = v.client_id || null;
-  credito = !clientId && v.client_name === 'Crédito';
   const ops = S.settings.operadores || [];
   const m = ops.find(o => o.n === v.operador || opCode(o) === v.operador);
   operador = m ? opCode(m) : (v.operador && v.operador !== 'Job Log' ? v.operador : null);
@@ -206,8 +251,8 @@ export function editar(v) {
   });
 }
 function limpiar() {
-  pendingId = null; ticket = []; cant = 1; metodo = null; clientId = null; credito = false;
-  ['recibe', 'ctTel', 'ctDm', 'ctEmail', 'oNota', 'libNombre', 'libTam', 'libPrecio', 'encPags', 'lnExtra'].forEach(id => { const e = $('#' + id, root); if (e) e.value = ''; });
+  pendingId = null; ticket = []; cant = 1; metodo = null; clientId = null; inboxId = null;
+  ['recibe', 'ctTel', 'ctDm', 'ctEmail', 'oNota', 'oPara', 'libNombre', 'libTam', 'libPrecio', 'encPags', 'lnExtra'].forEach(id => { const e = $('#' + id, root); if (e) e.value = ''; });
   paints.met?.(); paints.cli?.();
 }
 
@@ -272,6 +317,7 @@ function paint() {
   pay.textContent = paying ? 'Guardando…' : `Cobrar ${money(tot)}`;
   pay.disabled = paying || tot <= 0;
   root.querySelector('[data-pend]').disabled = paying || tot <= 0;
+  root.querySelector('[data-cred]').disabled = paying || tot <= 0;
 }
 
 const cuerpoItems = its => its.map(it => ({ serv: it.serv, tam: it.tam, cant: it.cant, precio_cents: it.precio_cents, especial: !!it.especial, paginas: it.paginas, nombre: it.nombre, tamano: it.tamano, color: it.color, extra: it.extraUser }));
@@ -281,8 +327,8 @@ async function guardarEdicion(its) {
   paying = true; paint();
   try {
     const r = await api(`/api/sales/${encodeURIComponent(editId)}`, { method: 'PUT', body: {
-      client_id: clientId, credito, operador, contacto_tel: $('#ctTel', root).value, contacto_dm: $('#ctDm', root).value,
-      contacto_email: $('#ctEmail', root).value, nota: $('#oNota', root).value, items: cuerpoItems(its),
+      client_id: clientId, operador, contacto_tel: $('#ctTel', root).value, contacto_dm: $('#ctDm', root).value,
+      contacto_email: $('#ctEmail', root).value, nota: $('#oNota', root).value, items: cuerpoItems(its), entrega: $('#oPara', root).value || null,
     } });
     toast('Orden actualizada');
     const id = r.sale.id;
@@ -293,7 +339,7 @@ async function guardarEdicion(its) {
   paying = false; paint();
 }
 
-async function guardar(cobrar) {
+async function guardar(cobrar, credito = false) {
   const its = items();
   if (!its.length) { toast('Toca “Agregar a la orden” para sumar el producto', true); root.querySelector('[data-add]').focus(); return; }
   if (editId) return guardarEdicion(its);
@@ -304,14 +350,15 @@ async function guardar(cobrar) {
   pendingId = pendingId || uuid();
   try {
     const body = {
-      id: pendingId, metodo: cobrar ? metodo : null, client_id: clientId, credito, operador,
+      id: pendingId, metodo: cobrar ? metodo : null, client_id: clientId, credito: !cobrar && credito, operador,
       contacto_tel: $('#ctTel', root).value, contacto_dm: $('#ctDm', root).value, contacto_email: $('#ctEmail', root).value, nota: $('#oNota', root).value,
-      items: cuerpoItems(its),
+      items: cuerpoItems(its), inbox_id: inboxId,
+      prod: entrega === 'ahora' ? 'entregado' : 'cola', entrega: entrega === 'cola' ? ($('#oPara', root).value || null) : null,
     };
     const r = await api('/api/sales', { method: 'POST', body });
     const v = r.sale;
     await choice({
-      title: `${cobrar ? 'Orden cobrada' : 'Orden pendiente'} · N° ${numOrdenTxt(v)}`,
+      title: `${cobrar ? 'Orden cobrada' : v.estado === 'credito' ? 'Orden a crédito' : 'Orden pendiente'} · N° ${numOrdenTxt(v)}`,
       html: `<p class="sub-note" style="margin:-6px 0 4px">${esc(v.client_name || 'Contado')} · ${money(v.total_cents)}${cobrar ? ' · ' + METODOS[v.metodo] : ' · por cobrar'}</p>`,
       buttons: [
         { label: `${ICON.print}Imprimir orden`, cls: 'line', keep: true, onClick: () => imprimirOrden(v) },
@@ -319,7 +366,7 @@ async function guardar(cobrar) {
         { label: 'Listo', value: true },
       ],
     });
-    location.hash = '#ordenes';
+    location.hash = inboxId ? '#trabajos' : '#ordenes';
     limpiar();
     emit('sale'); syncNow();
   } catch (e) {
