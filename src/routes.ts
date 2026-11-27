@@ -292,7 +292,12 @@ async function armarOrden(c: Ctx, b: any) {
       if (!tr) throw new HttpError(400, `Más de ${t.tramos[t.tramos.length - 1].hasta} páginas: usa "Otro producto" con precio libre`);
       precio = tr.precio; extra = `${pags} págs (tarifa ${tr.desde} a ${tr.hasta})`;
     }
-    if (!precio) {
+    // precio especial para este cliente (lo escribe el operador)
+    const esp = it.especial ? Math.round(Number(it.precio_cents)) : NaN;
+    if (it.especial) {
+      if (!Number.isFinite(esp) || esp < 0 || esp > 1000000) throw new HttpError(400, `Precio especial inválido en ${s.nombre}`);
+      precio = esp;
+    } else if (!precio) {
       precio = Math.round(Number(it.precio_cents));
       if (!Number.isFinite(precio) || precio < 1 || precio > 1000000) throw new HttpError(400, `Escribe el precio de ${s.nombre} ${t.nombre}`);
     }
@@ -304,6 +309,7 @@ async function armarOrden(c: Ctx, b: any) {
     }
     const nota = str(it.extra, 200);
     if (nota) extra = extra ? `${extra} · ${nota}` : nota;
+    if (it.especial && precio !== t.precio) extra = extra ? `Precio especial · ${extra}` : 'Precio especial';
     return { cat: s.cat, tipo: s.id, tam, nombre, color: color ? 1 : 0, unidad: s.unidad, extra, cant, precio, sub: Math.round(precio * cant) };
   });
   const bruto = items.reduce((a: number, x: any) => a + x.sub, 0);
@@ -318,7 +324,7 @@ async function armarOrden(c: Ctx, b: any) {
     const cl = await c.env.DB.prepare('SELECT id, name FROM clients WHERE id = ? AND account_id = ?').bind(str(b.client_id, 64), c.accountId).first<{ id: string; name: string }>();
     if (!cl) throw new HttpError(400, 'Cliente no encontrado');
     clientId = cl.id; clientName = cl.name;
-  }
+  } else if (b.credito) clientName = 'Crédito';
   const email = str(b.contacto_email, 120);
   if (email && !EMAIL_OK.test(email)) throw new HttpError(400, 'Correo de contacto inválido');
   return { st, items, subtotal, itbms, total, paginas, clientId, clientName, email };
@@ -394,10 +400,10 @@ export async function mergeSales(c: Ctx) {
   const ids = Array.isArray(b.ids) ? [...new Set(b.ids.map((x: unknown) => str(x, 64)))].filter(Boolean) as string[] : [];
   if (ids.length < 2 || ids.length > 50) throw new HttpError(400, 'Selecciona al menos dos órdenes');
   const ph = ids.map(() => '?').join(',');
-  const { results } = await c.env.DB.prepare(`SELECT id, ts, client_id, estado, metodo, anulada, nota FROM sales WHERE account_id = ? AND id IN (${ph})`)
-    .bind(c.accountId, ...ids).all<{ id: string; ts: number; client_id: string | null; estado: string; metodo: string | null; anulada: number; nota: string | null }>();
+  const { results } = await c.env.DB.prepare(`SELECT id, ts, client_id, client_name, estado, metodo, anulada, nota FROM sales WHERE account_id = ? AND id IN (${ph})`)
+    .bind(c.accountId, ...ids).all<{ id: string; ts: number; client_id: string | null; client_name: string | null; estado: string; metodo: string | null; anulada: number; nota: string | null }>();
   if (results.length !== ids.length || results.some(r => r.anulada)) throw new HttpError(400, 'Alguna orden ya no existe o está anulada');
-  if (new Set(results.map(r => r.client_id || '')).size > 1) throw new HttpError(400, 'Solo se pueden unificar órdenes del mismo cliente');
+  if (new Set(results.map(r => r.client_id || r.client_name || '')).size > 1) throw new HttpError(400, 'Solo se pueden unificar órdenes del mismo cliente');
   if (new Set(results.map(r => `${r.estado}|${r.metodo || ''}`)).size > 1) throw new HttpError(400, 'Las órdenes deben tener el mismo estado (todas pendientes, o cobradas con el mismo método)');
   results.sort((a, z) => a.ts - z.ts);
   const dest = results[0], otras = results.slice(1);

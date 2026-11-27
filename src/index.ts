@@ -49,6 +49,16 @@ function checkCsrf(req: Request, url: URL) {
   if (origin && origin !== url.origin) throw new HttpError(403, 'Origen no permitido');
 }
 
+/** Período de prueba: PRUEBA_HASTA (fecha ISO) en la configuración. Vacío = sistema pagado, sin límite. */
+function estadoPrueba(env: Env) {
+  const hasta = (env.PRUEBA_HASTA || '').trim();
+  if (!hasta) return null;
+  const fin = Date.parse(hasta);
+  if (!Number.isFinite(fin)) return null;
+  const ms = fin - Date.now();
+  return { hasta: new Date(fin).toISOString(), dias: Math.max(0, Math.floor(ms / 86400000)), vencida: ms <= 0 };
+}
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
@@ -58,13 +68,16 @@ export default {
       // Si la actualización de tablas falla, se registra y la app sigue funcionando
       try { await ensureSchema(env); } catch (e) { console.error('ensureSchema', e); }
       const p = url.pathname, m = req.method;
+      const prueba = estadoPrueba(env);
+      if (p === '/api/config' && m === 'GET') return json({ signup: (env.ALLOW_SIGNUP || 'true') === 'true', version: env.CF_VERSION_METADATA?.id || 'dev', prueba });
+      // Período de prueba vencido: la información se conserva, pero nadie puede entrar ni verla
+      if (prueba?.vencida && p !== '/api/auth/logout') throw new HttpError(402, 'El período de prueba terminó. Contacta al proveedor del sistema para activarlo.');
       if (p === '/api/auth/register' && m === 'POST') return await R.register(env, req, url);
       if (p === '/api/auth/login' && m === 'POST') return await R.login(env, req, url);
       if (p === '/api/auth/logout' && m === 'POST') return await R.logout(env, req, url);
       if (p === '/api/auth/recover' && m === 'POST') return await R.recoverPassword(env, req, url);
       if (p === '/api/auth/forgot' && m === 'POST') return await SEC.forgot(env, req, url);
       if (p === '/api/auth/reset' && m === 'POST') return await SEC.resetPassword(env, req, url);
-      if (p === '/api/config' && m === 'GET') return json({ signup: (env.ALLOW_SIGNUP || 'true') === 'true', version: env.CF_VERSION_METADATA?.id || 'dev' });
       for (const [method, re, h] of routes) {
         const match = re.exec(p);
         if (match && method === m) {

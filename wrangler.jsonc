@@ -21,7 +21,9 @@
     // "false" para impedir que se creen cuentas nuevas desde la página
     "ALLOW_SIGNUP": "false",
     // Iteraciones PBKDF2 para las contraseñas
-    "PBKDF2_ITERATIONS": "60000"
+    "PBKDF2_ITERATIONS": "60000",
+    // Período de prueba de 15 días (desde el 27/11/2026). Al pagar se deja vacío: ""
+    "PRUEBA_HASTA": "2026-12-12T23:59:59-05:00"
   },
   "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "observability": { "enabled": true }

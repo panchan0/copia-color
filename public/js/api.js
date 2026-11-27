@@ -3,7 +3,8 @@ export class ApiError extends Error {
 }
 let onUnauthorized = () => {};
 let onNetwork = () => {};
-export const setHandlers = (unauth, net) => { onUnauthorized = unauth; onNetwork = net; };
+let onBloqueo = () => {};
+export const setHandlers = (unauth, net, bloqueo) => { onUnauthorized = unauth; onNetwork = net; if (bloqueo) onBloqueo = bloqueo; };
 
 export async function api(path, { method = 'GET', body } = {}) {
   const opt = { method, headers: { 'x-requested-with': 'copias-color' }, credentials: 'same-origin' };
@@ -16,6 +17,7 @@ export async function api(path, { method = 'GET', body } = {}) {
   try { data = await r.json(); } catch { /* sin cuerpo */ }
   if (!r.ok) {
     if (r.status === 401 && !path.startsWith('/api/auth/')) onUnauthorized();
+    if (r.status === 402) onBloqueo((data && data.error) || '');
     throw new ApiError(r.status, (data && data.error) || (r.status >= 500 ? `El servidor no respondió (código ${r.status}). Intenta de nuevo en un momento.` : `Error ${r.status}`));
   }
   return data;

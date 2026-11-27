@@ -47,11 +47,12 @@ export async function nuevoCliente(nombre = '') {
 }
 
 /** Selector de cliente con búsqueda y opción de agregar uno nuevo. */
+export const CREDITO = '__credito';
 export function clientePicker(btn, getValue, onChange) {
   const paint = () => {
-    const c = S.clients.find(x => x.id === getValue());
+    const v = getValue(), c = S.clients.find(x => x.id === v);
     btn.className = 'picker';
-    btn.innerHTML = `${ICON.user}<span class="t${c ? '' : ' ph'}">${c ? esc(c.name) : 'Sin cliente'}</span>${ICON.chev}`;
+    btn.innerHTML = `${ICON.user}<span class="t${c || v === CREDITO ? '' : ' ph'}">${c ? esc(c.name) : v === CREDITO ? 'Crédito' : 'Contado'}</span>${ICON.chev}`;
   };
   btn.addEventListener('click', () => openMenu(btn, {
     width: 'anchor',
@@ -63,7 +64,7 @@ export function clientePicker(btn, getValue, onChange) {
         const found = S.clients.filter(c => !q || c.name.toLowerCase().includes(q) || (c.phone || '').includes(q));
         const exact = S.clients.some(c => c.name.toLowerCase() === q);
         list.innerHTML =
-          (q ? '' : `<button type="button" class="it${!getValue() ? ' sel' : ''}" data-id="">Sin cliente</button>`) +
+          (q ? '' : `<button type="button" class="it${!getValue() ? ' sel' : ''}" data-id="">Contado</button><button type="button" class="it${getValue() === CREDITO ? ' sel' : ''}" data-id="${CREDITO}">Crédito</button><div class="sep"></div>`) +
           found.map(c => `<button type="button" class="it${c.id === getValue() ? ' sel' : ''}" data-id="${esc(c.id)}">${esc(c.name)}${c.phone ? `<small>${esc(c.phone)}</small>` : ''}</button>`).join('') +
           (q && !found.length ? '<div class="none">No hay clientes con ese nombre</div>' : '') +
           (!S.clients.length && !q ? '<div class="none">Todavía no hay clientes guardados</div>' : '') +

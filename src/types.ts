@@ -7,6 +7,7 @@ export interface Env {
   PBKDF2_ITERATIONS?: string;
   RESEND_API_KEY?: string;
   MAIL_FROM?: string;
+  PRUEBA_HASTA?: string;
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string };
 }
 

@@ -1082,3 +1082,12 @@ textarea.input.ta{resize:none;min-height:40px;line-height:1.4;padding-top:9px;pa
 .stbl tr.picked .tick{background:var(--acc);border-color:var(--acc)}
 .stbl tr.picked td{background:var(--acc2)}
 @media (max-width:899px){ .stbl tr.picked{background:var(--acc2)} }
+
+/* Período de prueba */
+.prbar{background:var(--acc2);color:var(--ink);border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;margin-bottom:12px}
+.prbar.hide{display:none}
+.fin-prueba{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:24px;background:var(--paper);text-align:center}
+.fin-prueba .box{max-width:360px}
+.fin-prueba h1{font-size:22px;margin:16px 0 8px}
+.fin-prueba p{color:var(--muted);font-size:15px;line-height:1.45;margin:0}
+.fin-prueba svg{width:52px;height:52px;stroke:var(--acc);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}

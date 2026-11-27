@@ -96,9 +96,40 @@ function lock() {
   showAuth(a, () => { document.dispatchEvent(new Event('sesion-iniciada')); if (location.hash.startsWith('#reset=')) history.replaceState(null, '', '#dia'); enter().catch(e => toast(e.message, true)); });
 }
 
+/* Período de prueba vencido: se oculta toda la app y no se muestra ningún dato */
+let bloqueada = false;
+function finPrueba() {
+  if (bloqueada) return;
+  bloqueada = true;
+  stopSync(); closeMenu();
+  document.querySelectorAll('body > *').forEach(e => e.remove());
+  const d = document.createElement('div');
+  d.className = 'fin-prueba';
+  d.innerHTML = `<div class="box"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+    <h1>Período de prueba terminado</h1><p>Contacta al proveedor del sistema para activarlo. Tu información está guardada.</p></div>`;
+  document.body.className = '';
+  document.body.appendChild(d);
+}
+function avisoPrueba(pr) {
+  const b = $('#prbar'); if (!b) return;
+  b.classList.toggle('hide', !pr);
+  if (pr) b.textContent = `Período de prueba · ${pr.dias === 0 ? 'último día' : pr.dias === 1 ? 'queda 1 día' : `quedan ${pr.dias} días`}`;
+}
+async function revisarPrueba() {
+  try {
+    const r = await fetch('/api/config', { cache: 'no-store', headers: { 'x-requested-with': 'copias-color' } });
+    const { prueba } = await r.json();
+    if (prueba?.vencida) { finPrueba(); return true; }
+    avisoPrueba(prueba);
+  } catch { /* sin conexión */ }
+  return false;
+}
+setInterval(revisarPrueba, 10 * 60000);
+
 setHandlers(
   () => { if ($('#auth').classList.contains('hide')) lock(); },
   online => $('#netbar').classList.toggle('hide', online),
+  finPrueba,
 );
 
 document.getElementById('updbtn')?.addEventListener('click', () => location.reload());
@@ -128,6 +159,7 @@ let viva = false; try { viva = sessionStorage.getItem(VIVA) === '1'; } catch { /
 document.addEventListener('sesion-iniciada', () => { try { sessionStorage.setItem(VIVA, '1'); } catch { /* */ } });
 
 (async () => {
+  if (await revisarPrueba()) return;
   if (!viva && !location.hash.startsWith('#reset=')) { try { await api('/api/auth/logout', { method: 'POST', body: {} }); } catch { /* sin sesión */ } }
   if (location.hash.startsWith('#reset=')) { lock(); return; }
   try { await enter(); document.dispatchEvent(new Event('sesion-iniciada')); }

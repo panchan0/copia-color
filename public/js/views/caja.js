@@ -1,11 +1,11 @@
 import { api } from '../api.js';
 import { S, today, on, emit, syncNow } from '../store.js';
 import { $, toast, choice, ICON } from '../ui/dom.js';
-import { metodoPicker, clientePicker, listPicker, operadorPicker } from '../ui/pickers.js';
+import { metodoPicker, clientePicker, listPicker, operadorPicker, CREDITO } from '../ui/pickers.js';
 import { imprimirOrden, descargarOrden } from '../workorder.js';
 import { esc, money, toCents, uuid, METODOS, calcItbms, fmtCant, baseNombre, CATS2, catDe, opCode, numOrdenTxt } from '../util.js';
 
-let root, cat = 'imp', base = null, enColor = true, editId = null, editNum = null, servId = null, tamId = null, cant = 1, ticket = [], metodo = null, clientId = null, operador = null, paying = false;
+let root, cat = 'imp', base = null, enColor = true, editId = null, editNum = null, servId = null, tamId = null, cant = 1, ticket = [], metodo = null, clientId = null, credito = false, operador = null, paying = false;
 let paints = {}, pendingId = null;
 try { operador = localStorage.getItem('cc_operador') || null; } catch { /* sin almacenamiento */ }
 
@@ -30,11 +30,15 @@ function tramo(t, pags) {
   for (const tr of t.tramos) { if (pags <= tr.hasta) return { ...tr, desde }; desde = tr.hasta + 1; }
   return null;
 }
-function precioActual() {
+/** Precio del catálogo para la línea actual (0 si es libre). */
+function precioCat() {
   const s = serv(), t = tam(); if (!s || !t) return 0;
   if (t.tramos) { const tr = tramo(t, Number($('#encPags', root).value)); return tr ? tr.precio : 0; }
-  return t.precio || toCents($('#libPrecio', root).value) || 0;
+  return t.precio || 0;
 }
+/** Precio escrito a mano (precio especial del cliente o precio libre). */
+const precioMano = () => toCents($('#libPrecio', root).value) || 0;
+const precioActual = () => precioMano() || precioCat();
 function linea() {
   const s = serv(), t = tam(), p = precioActual();
   if (!s || !t) return null;
@@ -48,6 +52,7 @@ function linea() {
   return {
     serv: s.id, tam: t.id, cant, precio_cents: p, sub_cents: Math.round(p * cant), paginas: t.tramos ? pags : undefined,
     nombre, tamano: tamTxt, color: libre ? $('#libColor', root).checked : s.color, extraUser, extra, unidad: s.unidad, tamLabel: tamTxt,
+    especial: !libre && precioMano() > 0 && precioMano() !== precioCat(),
   };
 }
 const lineaOk = () => { const l = linea(); return !!l && l.cant > 0 && l.precio_cents > 0; };
@@ -118,7 +123,7 @@ export function mount(el) {
   paints.cat = listPicker(root.querySelector('[data-cat]'), { items: () => Object.entries(CATS2).filter(([id]) => S.settings.catalogo.some(x => catDe(x) === id && !x.oculto)).map(([id, label]) => ({ id, label })), getValue: () => cat, onChange: setCat });
   paints.serv = listPicker(root.querySelector('[data-serv]'), {
     items: () => bases().map(b => ({ id: b, label: b })), getValue: () => base, placeholder: 'Selecciona',
-    onChange: v => { base = v; elegirServ(); paints.tam(); paint(); },
+    onChange: v => { base = v; $('#libPrecio', root).value = ''; elegirServ(); paints.tam(); paint(); },
   });
   root.querySelector('[data-col]').addEventListener('click', e => {
     const b = e.target.closest('button[data-c]'); if (!b || b.disabled) return;
@@ -127,7 +132,7 @@ export function mount(el) {
   root.querySelectorAll('textarea.ta').forEach(t => t.addEventListener('input', () => autoAlto(t)));
   paints.tam = listPicker(root.querySelector('[data-tam]'), {
     items: () => tamsVisibles().map(t => ({ id: t.id, label: t.nombre, sub: t.tramos ? `desde ${money(t.tramos[0].precio)}` : t.precio ? `${money(t.precio)}${serv().unidad === 'pie lineal' ? ' / pie' : ''}` : 'precio libre' })),
-    getValue: () => tamId, placeholder: 'Selecciona', onChange: v => { tamId = v; paint(); },
+    getValue: () => tamId, placeholder: 'Selecciona', onChange: v => { tamId = v; $('#libPrecio', root).value = ''; paint(); },
   });
   ['libNombre', 'libTam', 'libPrecio', 'encPags', 'lnExtra', 'recibe'].forEach(id => $('#' + id, root).addEventListener('input', paint));
   $('#libColor', root).addEventListener('change', paint);
@@ -139,7 +144,9 @@ export function mount(el) {
   root.querySelector('[data-clear]').onclick = () => { ticket = []; paint(); };
   root.querySelector('[data-lines]').addEventListener('click', e => { const b = e.target.closest('.x'); if (!b) return; ticket.splice(Number(b.dataset.i), 1); paint(); });
   paints.met = metodoPicker(root.querySelector('[data-met]'), () => metodo, v => { metodo = v; paint(); if (v === 'efectivo') setTimeout(() => $('#recibe', root).focus(), 30); });
-  paints.cli = clientePicker(root.querySelector('[data-cli]'), () => clientId, v => { clientId = v; llenarContacto(); });
+  paints.cli = clientePicker(root.querySelector('[data-cli]'), () => clientId || (credito ? CREDITO : null), v => {
+    credito = v === CREDITO; clientId = credito ? null : v; llenarContacto();
+  });
   paints.op = operadorPicker(root.querySelector('[data-op]'), () => operador, v => { operador = v; try { localStorage.setItem('cc_operador', v); } catch { /* */ } });
   $('#recibe', root).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); guardar(true); } });
   root.querySelector('[data-pay]').onclick = () => guardar(true);
@@ -175,6 +182,7 @@ export function editar(v) {
   limpiar();
   editId = v.id; editNum = numOrdenTxt(v);
   clientId = v.client_id || null;
+  credito = !clientId && v.client_name === 'Crédito';
   const ops = S.settings.operadores || [];
   const m = ops.find(o => o.n === v.operador || opCode(o) === v.operador);
   operador = m ? opCode(m) : (v.operador && v.operador !== 'Job Log' ? v.operador : null);
@@ -186,16 +194,19 @@ export function editar(v) {
   ticket = v.items.map(it => {
     const s = S.settings.catalogo.find(x => x.id === it.tipo);
     const t = s?.libre ? s.tams[0] : s?.tams.find(x => x.nombre === it.tam);
-    const pm = /^(\d+) págs \(tarifa[^)]*\)/.exec(it.extra || '');
-    const extraUser = pm ? (it.extra.slice(pm[0].length).replace(/^ · /, '')) : (it.extra || '');
+    let ex = it.extra || '';
+    const especial = /^Precio especial( · |$)/.test(ex);
+    if (especial) ex = ex.replace(/^Precio especial( · )?/, '');
+    const pm = /^(\d+) págs \(tarifa[^)]*\)/.exec(ex);
+    const extraUser = pm ? (ex.slice(pm[0].length).replace(/^ · /, '')) : ex;
     return {
       serv: s?.id || it.tipo, tam: t?.id || '', cant: it.cant, precio_cents: it.precio_cents, sub_cents: it.sub_cents,
-      paginas: pm ? Number(pm[1]) : undefined, nombre: it.nombre, tamano: it.tam, color: !!it.color, extraUser, extra: it.extra, unidad: it.unidad, tamLabel: it.tam,
+      paginas: pm ? Number(pm[1]) : undefined, nombre: it.nombre, tamano: it.tam, color: !!it.color, extraUser, extra: it.extra, unidad: it.unidad, tamLabel: it.tam, especial,
     };
   });
 }
 function limpiar() {
-  pendingId = null; ticket = []; cant = 1; metodo = null; clientId = null;
+  pendingId = null; ticket = []; cant = 1; metodo = null; clientId = null; credito = false;
   ['recibe', 'ctTel', 'ctDm', 'ctEmail', 'oNota', 'libNombre', 'libTam', 'libPrecio', 'encPags', 'lnExtra'].forEach(id => { const e = $('#' + id, root); if (e) e.value = ''; });
   paints.met?.(); paints.cli?.();
 }
@@ -225,7 +236,8 @@ function agregar() {
   if (!(l.precio_cents > 0)) return toast('Escribe el precio', true);
   if (!(l.cant > 0)) return toast('Cantidad inválida', true);
   ticket.push(l); cant = 1; $('#lnExtra', root).value = ''; autoAlto($('#lnExtra', root));
-  if (s0libre()) { $('#libNombre', root).value = ''; $('#libTam', root).value = ''; $('#libPrecio', root).value = ''; }
+  $('#libPrecio', root).value = '';
+  if (s0libre()) { $('#libNombre', root).value = ''; $('#libTam', root).value = ''; }
   paint();
   const ult = root.querySelector('[data-lines] .tline:last-child'); ult?.animate?.([{ background: 'var(--acc2)' }, { background: 'transparent' }], { duration: 900 });
 }
@@ -233,7 +245,10 @@ function agregar() {
 function paint() {
   const s = serv(), t = tam();
   root.querySelector('[data-libre]').classList.toggle('hide', !s?.libre);
-  root.querySelector('[data-fprecio]').classList.toggle('hide', !t || !!t.tramos || !!t.precio);
+  root.querySelector('[data-fprecio]').classList.toggle('hide', !t);
+  const pc = precioCat(), lp = $('#libPrecio', root);
+  lp.placeholder = pc ? (pc / 100).toFixed(2) : '0.00';
+  root.querySelector('[data-fprecio] label').textContent = pc && precioMano() && precioMano() !== pc ? 'Precio especial' : 'Precio por unidad';
   root.querySelector('[data-fpags]').classList.toggle('hide', !t?.tramos);
   root.querySelector('[data-qlabel]').textContent = UNIT_LABEL[s?.unidad] || 'Cantidad';
   const q = $('#qInput', root); if (document.activeElement !== q) q.value = cant;
@@ -259,14 +274,14 @@ function paint() {
   root.querySelector('[data-pend]').disabled = paying || tot <= 0;
 }
 
-const cuerpoItems = its => its.map(it => ({ serv: it.serv, tam: it.tam, cant: it.cant, precio_cents: it.precio_cents, paginas: it.paginas, nombre: it.nombre, tamano: it.tamano, color: it.color, extra: it.extraUser }));
+const cuerpoItems = its => its.map(it => ({ serv: it.serv, tam: it.tam, cant: it.cant, precio_cents: it.precio_cents, especial: !!it.especial, paginas: it.paginas, nombre: it.nombre, tamano: it.tamano, color: it.color, extra: it.extraUser }));
 
 async function guardarEdicion(its) {
   if (paying) return;
   paying = true; paint();
   try {
     const r = await api(`/api/sales/${encodeURIComponent(editId)}`, { method: 'PUT', body: {
-      client_id: clientId, operador, contacto_tel: $('#ctTel', root).value, contacto_dm: $('#ctDm', root).value,
+      client_id: clientId, credito, operador, contacto_tel: $('#ctTel', root).value, contacto_dm: $('#ctDm', root).value,
       contacto_email: $('#ctEmail', root).value, nota: $('#oNota', root).value, items: cuerpoItems(its),
     } });
     toast('Orden actualizada');
@@ -289,7 +304,7 @@ async function guardar(cobrar) {
   pendingId = pendingId || uuid();
   try {
     const body = {
-      id: pendingId, metodo: cobrar ? metodo : null, client_id: clientId, operador,
+      id: pendingId, metodo: cobrar ? metodo : null, client_id: clientId, credito, operador,
       contacto_tel: $('#ctTel', root).value, contacto_dm: $('#ctDm', root).value, contacto_email: $('#ctEmail', root).value, nota: $('#oNota', root).value,
       items: cuerpoItems(its),
     };
